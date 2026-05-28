@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: iptv-server
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn main:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    plan: free
+    envVars:
+      - key: COLATV_FRONTEND
+        value: https://colatv48.live
+      - key: COLATV_API
+        value: https://api.cltvlv.com/api/matches
+      - key: HOIQUAN_FRONTEND
+        value: https://sv2.hoiquan4.live
+      - key: HOIQUAN_API
+        value: https://sv.hoiquantv.xyz/api/v1/external
+      - key: MATCH_MAX_DURATION
+        value: "7200"
