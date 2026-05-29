@@ -1,58 +1,74 @@
+import gzip
+import hashlib
 import os
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
 
 import cloudscraper
 import requests
-from flask import Flask, Response
+from flask import Flask, Response, request
 
 app = Flask(__name__)
 
 # ─── Cola TV config ───────────────────────────────────────────────────────────
-COLATV_FRONTEND_URL = os.environ.get("COLATV_FRONTEND", "https://colatv48.live")
-COLATV_KNOWN_API_URL = os.environ.get("COLATV_API", "https://api.cltvlv.com/api/matches")
+COLATV_FRONTEND_URL   = os.environ.get("COLATV_FRONTEND", "https://colatv48.live")
+COLATV_KNOWN_API_URL  = os.environ.get("COLATV_API",      "https://api.cltvlv.com/api/matches")
 
 # ─── Hội Quán TV config ───────────────────────────────────────────────────────
-HOIQUAN_FRONTEND_URL = os.environ.get("HOIQUAN_FRONTEND", "https://sv2.hoiquan4.live")
-HOIQUAN_KNOWN_API_BASE = os.environ.get("HOIQUAN_API", "https://sv.hoiquantv.xyz/api/v1/external")
+HOIQUAN_FRONTEND_URL  = os.environ.get("HOIQUAN_FRONTEND", "https://sv2.hoiquan4.live")
+HOIQUAN_KNOWN_API_BASE= os.environ.get("HOIQUAN_API",      "https://sv.hoiquantv.xyz/api/v1/external")
+
+# ─── Khán Đài A config ───────────────────────────────────────────────────────
+KHANDAIA_FRONTEND_URL = os.environ.get("KHANDAIA_FRONTEND", "https://tructiep.khandaia.link")
+KHANDAIA_KNOWN_API_BASE = os.environ.get("KHANDAIA_API",   "https://sv.khandai-a.xyz/api/v1/external")
 
 # ─── Shared config ────────────────────────────────────────────────────────────
-VN_TZ = timezone(timedelta(hours=7))
-SELF_PING_INTERVAL   = 240   # seconds — beat Replit / Render idle timeout
+VN_TZ                = timezone(timedelta(hours=7))
+SELF_PING_INTERVAL   = 240   # seconds
 PREFETCH_INTERVAL    = 300   # seconds — refresh cache every 5 minutes
 API_DISCOVERY_TTL    = 3600  # seconds — re-discover API URL every 1 hour
 
-COLATV_FINISHED_STATUS_INT  = {3}
-FINISHED_STATUS_STRINGS     = {"finished", "end", "ended", "complete", "completed"}
-# A match that started more than this many seconds ago and is NOT flagged live
-# is considered over and dropped from the list.
-MATCH_MAX_AGE_SECONDS = int(os.environ.get("MATCH_MAX_DURATION", 7200))  # 2 h
+COLATV_FINISHED_STATUS_INT = {3}
+FINISHED_STATUS_STRINGS    = {"finished", "end", "ended", "complete", "completed"}
+MATCH_MAX_AGE_SECONDS      = int(os.environ.get("MATCH_MAX_DURATION", 7200))  # 2 h
 
-# ─── Sport logos (Twemoji via jsDelivr — stable, no auth needed) ──────────────
+# ─── Sport logos (Twemoji via jsDelivr) ───────────────────────────────────────
 _CDN = "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72"
 SPORT_LOGOS = {
-    "football":   f"{_CDN}/26bd.png",   # ⚽
-    "tennis":     f"{_CDN}/1f3be.png",  # 🎾
-    "basketball": f"{_CDN}/1f3c0.png",  # 🏀
-    "volleyball": f"{_CDN}/1f3d0.png",  # 🏐
-    "billiards":  f"{_CDN}/1f3b1.png",  # 🎱
-    "badminton":  f"{_CDN}/1f3f8.png",  # 🏸
-    "default":    f"{_CDN}/1f3c6.png",  # 🏆
+    "football":   f"{_CDN}/26bd.png",
+    "tennis":     f"{_CDN}/1f3be.png",
+    "basketball": f"{_CDN}/1f3c0.png",
+    "volleyball": f"{_CDN}/1f3d0.png",
+    "billiards":  f"{_CDN}/1f3b1.png",
+    "badminton":  f"{_CDN}/1f3f8.png",
+    "default":    f"{_CDN}/1f3c6.png",
 }
 
 # ─── API URL caches ───────────────────────────────────────────────────────────
-_colatv_api_cache  = {"url": COLATV_KNOWN_API_URL,  "discovered_at": 0}
-_hoiquan_api_cache = {"url": HOIQUAN_KNOWN_API_BASE, "discovered_at": 0}
+_colatv_api_cache   = {"url": COLATV_KNOWN_API_URL,    "discovered_at": 0}
+_hoiquan_api_cache  = {"url": HOIQUAN_KNOWN_API_BASE,  "discovered_at": 0}
+_khandaia_api_cache = {"url": KHANDAIA_KNOWN_API_BASE, "discovered_at": 0}
 
 # ─── Playlist content cache ───────────────────────────────────────────────────
+# Each entry stores: raw text, gzip bytes, md5 etag, and build timestamp.
+def _empty_entry():
+    return {"content": None, "gz": None, "etag": None, "built_at": 0,
+            "lock": threading.Lock()}
+
 _playlist_cache = {
-    "combined": {"content": None, "built_at": 0, "lock": threading.Lock()},
-    "cola":     {"content": None, "built_at": 0, "lock": threading.Lock()},
-    "hoiquan":  {"content": None, "built_at": 0, "lock": threading.Lock()},
+    "combined": _empty_entry(),
+    "cola":     _empty_entry(),
+    "hoiquan":  _empty_entry(),
+    "khandaia": _empty_entry(),
 }
-_last_counts = {"cola": 0, "hoiquan": 0, "refreshed_at": 0, "last_error": ""}
+
+_last_counts = {
+    "cola": 0, "hoiquan": 0, "khandaia": 0,
+    "refreshed_at": 0, "last_error": "",
+}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -61,7 +77,7 @@ _last_counts = {"cola": 0, "hoiquan": 0, "refreshed_at": 0, "last_error": ""}
 
 def _logo_from_text(text: str) -> str:
     t = text.lower()
-    if any(k in t for k in ["tennis"]):
+    if "tennis" in t:
         return SPORT_LOGOS["tennis"]
     if any(k in t for k in ["basketball", "bóng rổ", "bong ro", "nba", "wnba"]):
         return SPORT_LOGOS["basketball"]
@@ -84,9 +100,8 @@ def _cola_logo(match: dict) -> str:
     return _logo_from_text(parts)
 
 
-def _hoiquan_logo(fixture: dict) -> str:
+def _hq_kda_logo(fixture: dict) -> str:
     sport = fixture.get("sport") or {}
-    # Use the icon URL the API already provides if available
     icon = sport.get("iconUrl", "")
     if icon:
         return icon
@@ -95,7 +110,7 @@ def _hoiquan_logo(fixture: dict) -> str:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  Cola TV — API discovery
+#  Cola TV — API discovery + fetch
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _discover_colatv_api(scraper) -> str:
@@ -104,8 +119,7 @@ def _discover_colatv_api(scraper) -> str:
         js_files = re.findall(r'src="(/assets/[^"]+\.js)"', r.text)
         if not js_files:
             return COLATV_KNOWN_API_URL
-        js_url = COLATV_FRONTEND_URL.rstrip("/") + js_files[0]
-        js = scraper.get(js_url, timeout=15).text
+        js = scraper.get(COLATV_FRONTEND_URL.rstrip("/") + js_files[0], timeout=15).text
         hits = re.findall(r'https://[a-z0-9\-\.]+/api/match[^"\'`\s]{0,30}', js)
         for hit in hits:
             base = re.match(r'(https://[a-z0-9\-\.]+)/api/', hit)
@@ -119,15 +133,10 @@ def _discover_colatv_api(scraper) -> str:
 def _get_colatv_api_url(scraper) -> str:
     now = time.time()
     if now - _colatv_api_cache["discovered_at"] > API_DISCOVERY_TTL:
-        url = _discover_colatv_api(scraper)
-        _colatv_api_cache["url"] = url
+        _colatv_api_cache["url"] = _discover_colatv_api(scraper)
         _colatv_api_cache["discovered_at"] = now
     return _colatv_api_cache["url"]
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  Cola TV — fetch & filter
-# ══════════════════════════════════════════════════════════════════════════════
 
 def _fetch_colatv_matches() -> dict:
     scraper = cloudscraper.create_scraper()
@@ -164,23 +173,18 @@ def _build_colatv_lines(matches: dict) -> list:
     for match in matches.values():
         if not _colatv_is_active(match):
             continue
-
-        logo      = _cola_logo(match)
+        logo        = _cola_logo(match)
         match_time  = match.get("matchTime", 0)
-        home       = match.get("homeTeamName", "Home")
-        away       = match.get("awayTeamName", "Away")
+        home        = match.get("homeTeamName", "Home")
+        away        = match.get("awayTeamName", "Away")
         competition = match.get("competitionName", "")
-
-        dt = datetime.fromtimestamp(match_time, tz=VN_TZ)
-        time_str = dt.strftime("%H:%M")
-        date_str = dt.strftime("%d/%m")
-
+        dt          = datetime.fromtimestamp(match_time, tz=VN_TZ)
+        time_str    = dt.strftime("%H:%M")
+        date_str    = dt.strftime("%d/%m")
         anchors = match.get("anchorAppointmentVoList", [])
         if anchors:
             for anchor in anchors:
-                stream_url = (
-                    anchor.get("playStreamAddress2") or anchor.get("playStreamAddress", "")
-                )
+                stream_url = anchor.get("playStreamAddress2") or anchor.get("playStreamAddress", "")
                 if not stream_url:
                     continue
                 commentator = anchor.get("nickName", "").strip()
@@ -198,19 +202,26 @@ def _build_colatv_lines(matches: dict) -> list:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  Hội Quán TV — API discovery
+#  Hội Quán TV — API discovery + fetch
 # ══════════════════════════════════════════════════════════════════════════════
+
+_HQ_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    ),
+}
+
 
 def _discover_hoiquan_api(scraper) -> str:
     try:
         r = scraper.get(HOIQUAN_FRONTEND_URL, timeout=10)
-        js_files = re.findall(r'src="(/assets/js/[^"]+\.js)"', r.text)
+        js_files = re.findall(r'src="(/assets/[^"]+\.js)"', r.text)
         if not js_files:
-            js_files = re.findall(r'src="(/assets/[^"]+\.js)"', r.text)
+            js_files = re.findall(r'src="(/assets/js/[^"]+\.js)"', r.text)
         if not js_files:
             return HOIQUAN_KNOWN_API_BASE
-        js_url = HOIQUAN_FRONTEND_URL.rstrip("/") + js_files[0]
-        js = scraper.get(js_url, timeout=15).text
+        js = scraper.get(HOIQUAN_FRONTEND_URL.rstrip("/") + js_files[0], timeout=15).text
         hits = re.findall(r'VITE_SERVER_API_BASE_URL:"(https://[^"]+)"', js)
         if hits:
             return hits[0]
@@ -225,23 +236,9 @@ def _discover_hoiquan_api(scraper) -> str:
 def _get_hoiquan_api_base(scraper) -> str:
     now = time.time()
     if now - _hoiquan_api_cache["discovered_at"] > API_DISCOVERY_TTL:
-        url = _discover_hoiquan_api(scraper)
-        _hoiquan_api_cache["url"] = url
+        _hoiquan_api_cache["url"] = _discover_hoiquan_api(scraper)
         _hoiquan_api_cache["discovered_at"] = now
     return _hoiquan_api_cache["url"]
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  Hội Quán TV — fetch & filter
-# ══════════════════════════════════════════════════════════════════════════════
-
-_HQ_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    ),
-}
 
 
 def _fetch_hoiquan_fixtures() -> list:
@@ -264,45 +261,84 @@ def _fetch_hoiquan_fixtures() -> list:
     return data.get("data", [])
 
 
-def _hoiquan_is_active(fixture: dict) -> bool:
-    """
-    Drop a fixture if any of these is true:
-    1. status string signals it's over
-    2. isFinished / isEnd flag is set
-    3. Not live AND started more than MATCH_MAX_AGE_SECONDS ago
-    4. Not live, status == "active" (= was started) AND started > 90 min ago
-       — covers matches the API server is slow to mark as finished
-    """
-    # 1. Status string
+# ══════════════════════════════════════════════════════════════════════════════
+#  Khán Đài A — API discovery + fetch  (same schema as Hội Quán TV)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _discover_khandaia_api(scraper) -> str:
+    try:
+        r = scraper.get(KHANDAIA_FRONTEND_URL, timeout=10)
+        js_files = re.findall(r'src="(/assets/[^"]+\.js)"', r.text)
+        if not js_files:
+            return KHANDAIA_KNOWN_API_BASE
+        # The API base is embedded in the queries chunk
+        for js_path in js_files:
+            js = scraper.get(KHANDAIA_FRONTEND_URL.rstrip("/") + js_path, timeout=20).text
+            # Look for any chunk files referenced and scan them too
+            chunk_paths = re.findall(r'assets/queries[^"\']+\.js', js)
+            for cp in chunk_paths[:2]:
+                chunk = scraper.get(KHANDAIA_FRONTEND_URL.rstrip("/") + "/" + cp, timeout=15).text
+                hits = re.findall(r'https://sv\.[a-z0-9\-\.]+/api/v1/external', chunk)
+                if hits:
+                    return hits[0]
+            hits = re.findall(r'https://sv\.[a-z0-9\-\.]+/api/v1/external', js)
+            if hits:
+                return hits[0]
+    except Exception:
+        pass
+    return KHANDAIA_KNOWN_API_BASE
+
+
+def _get_khandaia_api_base(scraper) -> str:
+    now = time.time()
+    if now - _khandaia_api_cache["discovered_at"] > API_DISCOVERY_TTL:
+        _khandaia_api_cache["url"] = _discover_khandaia_api(scraper)
+        _khandaia_api_cache["discovered_at"] = now
+    return _khandaia_api_cache["url"]
+
+
+def _fetch_khandaia_fixtures() -> list:
+    scraper = cloudscraper.create_scraper()
+    api_base = _get_khandaia_api_base(scraper)
+    url = api_base.rstrip("/") + "/fixtures/unfinished"
+    headers = {**_HQ_HEADERS, "Referer": KHANDAIA_FRONTEND_URL + "/"}
+    try:
+        resp = scraper.get(url, headers=headers, timeout=15)
+        resp.raise_for_status()
+    except Exception:
+        _khandaia_api_cache["discovered_at"] = 0
+        api_base = _get_khandaia_api_base(scraper)
+        url = api_base.rstrip("/") + "/fixtures/unfinished"
+        resp = scraper.get(url, headers=headers, timeout=15)
+        resp.raise_for_status()
+    data = resp.json()
+    if not data.get("success"):
+        return []
+    return data.get("data", [])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Shared fixture helpers  (Hội Quán TV + Khán Đài A use same schema)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _fixture_is_active(fixture: dict) -> bool:
     status = str(fixture.get("status") or "").lower().strip()
     if status in FINISHED_STATUS_STRINGS:
         return False
-
-    # 2. Boolean flags
     if fixture.get("isFinished") or fixture.get("isEnd"):
         return False
-
-    is_live = bool(fixture.get("isLive"))
+    is_live       = bool(fixture.get("isLive"))
     start_time_str = fixture.get("startTime", "")
-
     if start_time_str and not is_live:
         try:
-            dt = datetime.fromisoformat(start_time_str.replace("Z", "+00:00"))
+            dt      = datetime.fromisoformat(start_time_str.replace("Z", "+00:00"))
             elapsed = time.time() - dt.timestamp()
-
-            # 3. Hard cap: started more than 2 h ago and not live → drop
             if elapsed > MATCH_MAX_AGE_SECONDS:
                 return False
-
-            # 4. Soft cap for "active" (started) matches:
-            #    if the server says it was started but it's no longer live
-            #    and 90 min have passed, assume it's over.
-            if status == "active" and elapsed > 5400:  # 90 min
+            if status == "active" and elapsed > 5400:
                 return False
-
         except Exception:
             pass
-
     return True
 
 
@@ -320,97 +356,116 @@ def _pick_best_stream(streams: list) -> str:
     return ""
 
 
-def _build_hoiquan_lines(fixtures: list) -> list:
-    # Sort chronologically
+def _build_fixture_lines(fixtures: list, group_title: str) -> list:
     try:
         fixtures = sorted(fixtures, key=lambda f: f.get("startTime") or "")
     except Exception:
         pass
-
     lines = []
     for fixture in fixtures:
-        if not _hoiquan_is_active(fixture):
+        if not _fixture_is_active(fixture):
             continue
-
-        logo      = _hoiquan_logo(fixture)
+        logo      = _hq_kda_logo(fixture)
         start_str = fixture.get("startTime", "")
         home      = fixture.get("homeTeam", {}).get("name", "Home").strip()
         away      = fixture.get("awayTeam", {}).get("name", "Away").strip()
         league    = fixture.get("league", {}).get("name", "")
-
         try:
-            dt = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
-            dt_vn = dt.astimezone(VN_TZ)
+            dt      = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
+            dt_vn   = dt.astimezone(VN_TZ)
             time_str = dt_vn.strftime("%H:%M")
             date_str = dt_vn.strftime("%d/%m")
         except Exception:
             time_str = "--:--"
             date_str = "--/--"
-
         for entry in fixture.get("fixtureCommentators", []):
             commentator_obj = entry.get("commentator", {})
-            name = (
-                commentator_obj.get("nickname") or commentator_obj.get("name") or ""
-            ).strip()
+            name = (commentator_obj.get("nickname") or commentator_obj.get("name") or "").strip()
             stream_url = _pick_best_stream(commentator_obj.get("streams", []))
             if not stream_url:
                 continue
             display = f"{time_str} - {date_str} | {home} VS {away} ({league}) | {name}"
-            lines.append(f'#EXTINF:-1 tvg-logo="{logo}" group-title="Hội Quán TV",{display}')
+            lines.append(f'#EXTINF:-1 tvg-logo="{logo}" group-title="{group_title}",{display}')
             lines.append(stream_url)
-
     return lines
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  Background pre-fetch & cache
+#  Cache helpers — build compressed + ETag
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _pack(text: str) -> dict:
+    raw  = text.encode("utf-8")
+    gz   = gzip.compress(raw, compresslevel=6)
+    etag = '"' + hashlib.md5(raw).hexdigest() + '"'
+    return {"content": raw, "gz": gz, "etag": etag, "built_at": time.time()}
+
+
+def _store(key: str, text: str):
+    packed = _pack(text)
+    entry  = _playlist_cache[key]
+    with entry["lock"]:
+        entry.update(packed)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Background pre-fetch (parallel)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _refresh_all_playlists():
-    cola_lines, hq_lines = [], []
-    cola_count = hq_count = 0
+    cola_lines = hq_lines = kda_lines = []
     errors = []
 
-    try:
-        matches = _fetch_colatv_matches()
-        cola_lines = _build_colatv_lines(matches)
-        cola_count = sum(1 for l in cola_lines if l.startswith("#EXTINF"))
-    except Exception as e:
-        errors.append(f"Cola TV: {e}")
+    def fetch_cola():
+        return _build_colatv_lines(_fetch_colatv_matches())
 
-    try:
-        fixtures = _fetch_hoiquan_fixtures()
-        hq_lines = _build_hoiquan_lines(fixtures)
-        hq_count = sum(1 for l in hq_lines if l.startswith("#EXTINF"))
-    except Exception as e:
-        errors.append(f"Hội Quán TV: {e}")
+    def fetch_hq():
+        return _build_fixture_lines(_fetch_hoiquan_fixtures(), "Hội Quán TV")
 
-    now = time.time()
+    def fetch_kda():
+        return _build_fixture_lines(_fetch_khandaia_fixtures(), "Khán Đài A")
+
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        futures = {
+            ex.submit(fetch_cola): "cola",
+            ex.submit(fetch_hq):   "hoiquan",
+            ex.submit(fetch_kda):  "khandaia",
+        }
+        results = {}
+        for fut in as_completed(futures):
+            key = futures[fut]
+            try:
+                results[key] = fut.result()
+            except Exception as e:
+                results[key] = []
+                errors.append(f"{key}: {e}")
+
+    cola_lines = results.get("cola",     [])
+    hq_lines   = results.get("hoiquan",  [])
+    kda_lines  = results.get("khandaia", [])
+
     err_str = "; ".join(errors)
 
-    combined = "\n".join(["#EXTM3U"] + cola_lines + hq_lines)
+    def count(lines):
+        return sum(1 for l in lines if l.startswith("#EXTINF"))
+
+    # Build + store each playlist
+    _store("cola",     "\n".join(["#EXTM3U"] + cola_lines))
+    _store("hoiquan",  "\n".join(["#EXTM3U"] + hq_lines))
+    _store("khandaia", "\n".join(["#EXTM3U"] + kda_lines))
+
+    combined_text = "\n".join(["#EXTM3U"] + cola_lines + hq_lines + kda_lines)
     if err_str:
-        combined += f"\n# Errors: {err_str}"
+        combined_text += f"\n# Errors: {err_str}"
+    _store("combined", combined_text)
 
-    cola_only = "\n".join(["#EXTM3U"] + cola_lines)
-    hq_only   = "\n".join(["#EXTM3U"] + hq_lines)
-
-    with _playlist_cache["combined"]["lock"]:
-        _playlist_cache["combined"]["content"]  = combined
-        _playlist_cache["combined"]["built_at"] = now
-
-    with _playlist_cache["cola"]["lock"]:
-        _playlist_cache["cola"]["content"]  = cola_only
-        _playlist_cache["cola"]["built_at"] = now
-
-    with _playlist_cache["hoiquan"]["lock"]:
-        _playlist_cache["hoiquan"]["content"]  = hq_only
-        _playlist_cache["hoiquan"]["built_at"] = now
-
-    _last_counts["cola"]         = cola_count
-    _last_counts["hoiquan"]      = hq_count
-    _last_counts["refreshed_at"] = now
-    _last_counts["last_error"]   = err_str
+    _last_counts.update({
+        "cola":         count(cola_lines),
+        "hoiquan":      count(hq_lines),
+        "khandaia":     count(kda_lines),
+        "refreshed_at": time.time(),
+        "last_error":   err_str,
+    })
 
 
 def _prefetch_loop():
@@ -423,48 +478,66 @@ def _prefetch_loop():
         time.sleep(PREFETCH_INTERVAL)
 
 
-def _get_cached(key: str):
+def _get_entry(key: str):
     entry = _playlist_cache[key]
     with entry["lock"]:
-        return entry["content"]
+        return dict(entry)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Flask routes
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _m3u_response(content: str, filename: str) -> Response:
-    return Response(
-        content,
-        mimetype="application/x-mpegurl",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+def _m3u_response(key: str, filename: str) -> Response:
+    entry = _get_entry(key)
 
-
-def _serve(key: str, filename: str) -> Response:
-    content = _get_cached(key)
-    if content is None:
+    # First request — build synchronously
+    if entry["content"] is None:
         try:
             _refresh_all_playlists()
-            content = _get_cached(key) or "#EXTM3U\n# No data yet"
+            entry = _get_entry(key)
         except Exception as e:
             return Response(f"Error: {e}", status=500, mimetype="text/plain")
-    return _m3u_response(content, filename)
+
+    # ── ETag / conditional GET ────────────────────────────────────────────────
+    etag = entry["etag"]
+    if request.headers.get("If-None-Match") == etag:
+        return Response(status=304)
+
+    # ── Choose gzip or plain ──────────────────────────────────────────────────
+    accept_enc = request.headers.get("Accept-Encoding", "")
+    use_gzip   = "gzip" in accept_enc and entry["gz"] is not None
+
+    body = entry["gz"] if use_gzip else entry["content"]
+
+    resp = Response(body, mimetype="application/x-mpegurl")
+    resp.headers["ETag"]                = etag
+    resp.headers["Cache-Control"]       = f"public, max-age={PREFETCH_INTERVAL}"
+    resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    resp.headers["Vary"]                = "Accept-Encoding"
+    if use_gzip:
+        resp.headers["Content-Encoding"] = "gzip"
+    return resp
 
 
 @app.route("/live.m3u")
 def live_m3u():
-    return _serve("combined", "live.m3u")
+    return _m3u_response("combined", "live.m3u")
 
 
 @app.route("/cola.m3u")
 def cola_m3u():
-    return _serve("cola", "cola.m3u")
+    return _m3u_response("cola", "cola.m3u")
 
 
 @app.route("/hoiquan.m3u")
 def hoiquan_m3u():
-    return _serve("hoiquan", "hoiquan.m3u")
+    return _m3u_response("hoiquan", "hoiquan.m3u")
+
+
+@app.route("/khandaia.m3u")
+def khandaia_m3u():
+    return _m3u_response("khandaia", "khandaia.m3u")
 
 
 @app.route("/ping")
@@ -474,38 +547,50 @@ def ping():
 
 @app.route("/")
 def index():
-    refreshed_at = _last_counts.get("refreshed_at", 0)
-    if refreshed_at:
-        dt_str  = datetime.fromtimestamp(refreshed_at, tz=VN_TZ).strftime("%H:%M:%S %d/%m/%Y")
-        next_s  = max(int(PREFETCH_INTERVAL - (time.time() - refreshed_at)), 0)
+    ra = _last_counts.get("refreshed_at", 0)
+    if ra:
+        dt_str   = datetime.fromtimestamp(ra, tz=VN_TZ).strftime("%H:%M:%S %d/%m/%Y")
+        next_s   = max(int(PREFETCH_INTERVAL - (time.time() - ra)), 0)
         next_str = f"{next_s}s"
     else:
-        dt_str  = "chưa có dữ liệu"
+        dt_str   = "chưa có dữ liệu"
         next_str = "đang khởi động..."
 
-    err = _last_counts.get("last_error", "")
+    err     = _last_counts.get("last_error", "")
     err_html = f'<p style="color:red">⚠️ {err}</p>' if err else ""
+
+    cola_count = _last_counts.get("cola", 0)
+    hq_count   = _last_counts.get("hoiquan", 0)
+    kda_count  = _last_counts.get("khandaia", 0)
+    total      = cola_count + hq_count + kda_count
 
     return (
         "<h2>🎬 IPTV M3U Server</h2>"
         "<h3>📋 Playlist</h3><ul>"
-        "<li><a href='/live.m3u'>/live.m3u</a> — Cola TV + Hội Quán TV (gộp)</li>"
+        "<li><a href='/live.m3u'>/live.m3u</a> — Tất cả nguồn gộp lại</li>"
         "<li><a href='/cola.m3u'>/cola.m3u</a> — Cola TV only</li>"
         "<li><a href='/hoiquan.m3u'>/hoiquan.m3u</a> — Hội Quán TV only</li>"
+        "<li><a href='/khandaia.m3u'>/khandaia.m3u</a> — Khán Đài A only</li>"
         "</ul>"
         "<h3>📊 Trạng thái</h3>"
+        f"<p>📺 Tổng kênh: <strong>{total}</strong></p>"
         f"<p>🕐 Cập nhật lần cuối: <strong>{dt_str}</strong></p>"
-        f"<p>⏳ Cập nhật tiếp theo trong: <strong>{next_str}</strong></p>"
-        f"<p>📺 Cola TV: <strong>{_last_counts.get('cola', 0)} kênh</strong>"
-        f"&nbsp;|&nbsp; API: <code>{_colatv_api_cache['url']}</code></p>"
-        f"<p>📺 Hội Quán TV: <strong>{_last_counts.get('hoiquan', 0)} kênh</strong>"
-        f"&nbsp;|&nbsp; API: <code>{_hoiquan_api_cache['url']}</code></p>"
+        f"<p>⏳ Cập nhật tiếp theo: <strong>{next_str}</strong></p>"
+        f"<p>🟢 Cola TV: <strong>{cola_count} kênh</strong>"
+        f"&nbsp;|&nbsp; <code>{_colatv_api_cache['url']}</code></p>"
+        f"<p>🟢 Hội Quán TV: <strong>{hq_count} kênh</strong>"
+        f"&nbsp;|&nbsp; <code>{_hoiquan_api_cache['url']}</code></p>"
+        f"<p>🟢 Khán Đài A: <strong>{kda_count} kênh</strong>"
+        f"&nbsp;|&nbsp; <code>{_khandaia_api_cache['url']}</code></p>"
         f"{err_html}"
-        "<h3>⚙️ Lọc trận kết thúc</h3>"
-        f"<p>Xoá trận không live và bắt đầu trước "
-        f"<strong>{MATCH_MAX_AGE_SECONDS // 3600}h</strong>. "
-        "Xoá trận 'active' không live sau 90 phút.</p>"
-        f"<p>🔁 Cache làm mới mỗi <strong>{PREFETCH_INTERVAL // 60} phút</strong>.</p>"
+        "<h3>⚙️ Tối ưu băng thông</h3>"
+        "<ul>"
+        "<li>Gzip nén tự động (giảm ~70% dữ liệu truyền)</li>"
+        "<li>ETag + HTTP 304 — client có sẵn cache không cần tải lại</li>"
+        f"<li>Cache-Control: public, max-age={PREFETCH_INTERVAL}s</li>"
+        "<li>Fetch 3 nguồn song song (ThreadPoolExecutor)</li>"
+        f"<li>Làm mới cache mỗi <strong>{PREFETCH_INTERVAL // 60} phút</strong></li>"
+        "</ul>"
     )
 
 
@@ -514,15 +599,12 @@ def index():
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _get_ping_url() -> str:
-    # Replit production domain
     domains = os.environ.get("REPLIT_DOMAINS", "")
     if domains:
         return f"https://{domains.split(',')[0].strip()}/"
-    # Render automatically sets this on deployed services
     render_url = os.environ.get("RENDER_EXTERNAL_URL", "")
     if render_url:
         return render_url.rstrip("/") + "/"
-    # Custom domain (set APP_URL env var on any platform)
     app_url = os.environ.get("APP_URL", "")
     if app_url:
         return app_url.rstrip("/") + "/"
