@@ -14,5 +14,9 @@ services:
         value: https://sv2.hoiquan4.live
       - key: HOIQUAN_API
         value: https://sv.hoiquantv.xyz/api/v1/external
+      - key: KHANDAIA_FRONTEND
+        value: https://tructiep.khandaia.link
+      - key: KHANDAIA_API
+        value: https://sv.khandai-a.xyz/api/v1/external
       - key: MATCH_MAX_DURATION
         value: "7200"
