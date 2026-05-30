@@ -22,8 +22,15 @@ HOIQUAN_FRONTEND_URL  = os.environ.get("HOIQUAN_FRONTEND", "https://sv2.hoiquan4
 HOIQUAN_KNOWN_API_BASE= os.environ.get("HOIQUAN_API",      "https://sv.hoiquantv.xyz/api/v1/external")
 
 # ─── Khán Đài A config ───────────────────────────────────────────────────────
-KHANDAIA_FRONTEND_URL = os.environ.get("KHANDAIA_FRONTEND", "https://tructiep.khandaia.link")
-KHANDAIA_KNOWN_API_BASE = os.environ.get("KHANDAIA_API",   "https://sv.khandai-a.xyz/api/v1/external")
+KHANDAIA_FRONTEND_URL   = os.environ.get("KHANDAIA_FRONTEND", "https://tructiep.khandaia.link")
+KHANDAIA_KNOWN_API_BASE = os.environ.get("KHANDAIA_API",      "https://sv.khandai-a.xyz/api/v1/external")
+
+# ─── Dekiki (GitHub-hosted static list) + EPG ────────────────────────────────
+DEKIKI_M3U_URL = os.environ.get(
+    "DEKIKI_M3U_URL",
+    "https://raw.githubusercontent.com/Bacbenny/Truyenhinhiptv/refs/heads/main/dekiki.m3u",
+)
+EPG_URL = os.environ.get("EPG_URL", "https://vnepg.site/epg.xml")
 
 # ─── Shared config ────────────────────────────────────────────────────────────
 VN_TZ                = timezone(timedelta(hours=7))
@@ -63,10 +70,11 @@ _playlist_cache = {
     "cola":     _empty_entry(),
     "hoiquan":  _empty_entry(),
     "khandaia": _empty_entry(),
+    "dekiki":   _empty_entry(),
 }
 
 _last_counts = {
-    "cola": 0, "hoiquan": 0, "khandaia": 0,
+    "cola": 0, "hoiquan": 0, "khandaia": 0, "dekiki": 0,
     "refreshed_at": 0, "last_error": "",
 }
 
@@ -318,6 +326,23 @@ def _fetch_khandaia_fixtures() -> list:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  Dekiki — static GitHub M3U fetch + parse
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _fetch_dekiki_lines() -> list:
+    """Download the GitHub-hosted M3U, strip its header, return raw lines."""
+    resp = requests.get(DEKIKI_M3U_URL, timeout=20)
+    resp.raise_for_status()
+    lines = []
+    for line in resp.text.splitlines():
+        stripped = line.rstrip()
+        if not stripped or stripped.startswith("#EXTM3U"):
+            continue        # we add our own header with EPG url-tvg
+        lines.append(stripped)
+    return lines
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Shared fixture helpers  (Hội Quán TV + Khán Đài A use same schema)
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -413,7 +438,6 @@ def _store(key: str, text: str):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _refresh_all_playlists():
-    cola_lines = hq_lines = kda_lines = []
     errors = []
 
     def fetch_cola():
@@ -425,11 +449,15 @@ def _refresh_all_playlists():
     def fetch_kda():
         return _build_fixture_lines(_fetch_khandaia_fixtures(), "Khán Đài A")
 
-    with ThreadPoolExecutor(max_workers=3) as ex:
+    def fetch_dekiki():
+        return _fetch_dekiki_lines()
+
+    with ThreadPoolExecutor(max_workers=4) as ex:
         futures = {
-            ex.submit(fetch_cola): "cola",
-            ex.submit(fetch_hq):   "hoiquan",
-            ex.submit(fetch_kda):  "khandaia",
+            ex.submit(fetch_cola):   "cola",
+            ex.submit(fetch_hq):     "hoiquan",
+            ex.submit(fetch_kda):    "khandaia",
+            ex.submit(fetch_dekiki): "dekiki",
         }
         results = {}
         for fut in as_completed(futures):
@@ -440,21 +468,28 @@ def _refresh_all_playlists():
                 results[key] = []
                 errors.append(f"{key}: {e}")
 
-    cola_lines = results.get("cola",     [])
-    hq_lines   = results.get("hoiquan",  [])
-    kda_lines  = results.get("khandaia", [])
+    cola_lines   = results.get("cola",     [])
+    hq_lines     = results.get("hoiquan",  [])
+    kda_lines    = results.get("khandaia", [])
+    dekiki_lines = results.get("dekiki",   [])
 
     err_str = "; ".join(errors)
 
     def count(lines):
         return sum(1 for l in lines if l.startswith("#EXTINF"))
 
-    # Build + store each playlist
-    _store("cola",     "\n".join(["#EXTM3U"] + cola_lines))
-    _store("hoiquan",  "\n".join(["#EXTM3U"] + hq_lines))
-    _store("khandaia", "\n".join(["#EXTM3U"] + kda_lines))
+    # EPG header — shared across all playlists
+    epg_header = f'#EXTM3U url-tvg="{EPG_URL}" x-tvg-url="{EPG_URL}"'
 
-    combined_text = "\n".join(["#EXTM3U"] + cola_lines + hq_lines + kda_lines)
+    # Build + store individual playlists
+    _store("cola",     epg_header + "\n" + "\n".join(cola_lines))
+    _store("hoiquan",  epg_header + "\n" + "\n".join(hq_lines))
+    _store("khandaia", epg_header + "\n" + "\n".join(kda_lines))
+    _store("dekiki",   epg_header + "\n" + "\n".join(dekiki_lines))
+
+    # Combined — live sports first, then static TV channels
+    all_lines = cola_lines + hq_lines + kda_lines + dekiki_lines
+    combined_text = epg_header + "\n" + "\n".join(all_lines)
     if err_str:
         combined_text += f"\n# Errors: {err_str}"
     _store("combined", combined_text)
@@ -463,6 +498,7 @@ def _refresh_all_playlists():
         "cola":         count(cola_lines),
         "hoiquan":      count(hq_lines),
         "khandaia":     count(kda_lines),
+        "dekiki":       count(dekiki_lines),
         "refreshed_at": time.time(),
         "last_error":   err_str,
     })
@@ -540,6 +576,11 @@ def khandaia_m3u():
     return _m3u_response("khandaia", "khandaia.m3u")
 
 
+@app.route("/dekiki.m3u")
+def dekiki_m3u():
+    return _m3u_response("dekiki", "dekiki.m3u")
+
+
 @app.route("/ping")
 def ping():
     return Response("OK", mimetype="text/plain")
@@ -559,10 +600,11 @@ def index():
     err     = _last_counts.get("last_error", "")
     err_html = f'<p style="color:red">⚠️ {err}</p>' if err else ""
 
-    cola_count = _last_counts.get("cola", 0)
-    hq_count   = _last_counts.get("hoiquan", 0)
-    kda_count  = _last_counts.get("khandaia", 0)
-    total      = cola_count + hq_count + kda_count
+    cola_count   = _last_counts.get("cola", 0)
+    hq_count     = _last_counts.get("hoiquan", 0)
+    kda_count    = _last_counts.get("khandaia", 0)
+    dekiki_count = _last_counts.get("dekiki", 0)
+    total        = cola_count + hq_count + kda_count + dekiki_count
 
     return (
         "<h2>🎬 IPTV M3U Server</h2>"
@@ -571,9 +613,12 @@ def index():
         "<li><a href='/cola.m3u'>/cola.m3u</a> — Cola TV only</li>"
         "<li><a href='/hoiquan.m3u'>/hoiquan.m3u</a> — Hội Quán TV only</li>"
         "<li><a href='/khandaia.m3u'>/khandaia.m3u</a> — Khán Đài A only</li>"
+        "<li><a href='/dekiki.m3u'>/dekiki.m3u</a> — Kênh TV Việt (dekiki)</li>"
         "</ul>"
         "<h3>📊 Trạng thái</h3>"
-        f"<p>📺 Tổng kênh: <strong>{total}</strong></p>"
+        f"<p>📺 Tổng kênh: <strong>{total}</strong>"
+        f" &nbsp;(🏆 Live: {cola_count + hq_count + kda_count}"
+        f" | 📡 TV: {dekiki_count})</p>"
         f"<p>🕐 Cập nhật lần cuối: <strong>{dt_str}</strong></p>"
         f"<p>⏳ Cập nhật tiếp theo: <strong>{next_str}</strong></p>"
         f"<p>🟢 Cola TV: <strong>{cola_count} kênh</strong>"
@@ -582,13 +627,15 @@ def index():
         f"&nbsp;|&nbsp; <code>{_hoiquan_api_cache['url']}</code></p>"
         f"<p>🟢 Khán Đài A: <strong>{kda_count} kênh</strong>"
         f"&nbsp;|&nbsp; <code>{_khandaia_api_cache['url']}</code></p>"
+        f"<p>📡 Kênh TV (dekiki): <strong>{dekiki_count} kênh</strong></p>"
+        f"<p>📻 EPG: <a href='{EPG_URL}' target='_blank'>{EPG_URL}</a></p>"
         f"{err_html}"
         "<h3>⚙️ Tối ưu băng thông</h3>"
         "<ul>"
         "<li>Gzip nén tự động (giảm ~70% dữ liệu truyền)</li>"
         "<li>ETag + HTTP 304 — client có sẵn cache không cần tải lại</li>"
         f"<li>Cache-Control: public, max-age={PREFETCH_INTERVAL}s</li>"
-        "<li>Fetch 3 nguồn song song (ThreadPoolExecutor)</li>"
+        "<li>Fetch 4 nguồn song song (ThreadPoolExecutor)</li>"
         f"<li>Làm mới cache mỗi <strong>{PREFETCH_INTERVAL // 60} phút</strong></li>"
         "</ul>"
     )
