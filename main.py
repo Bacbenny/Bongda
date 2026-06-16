@@ -28,7 +28,7 @@ KHANDAIA_KNOWN_API_BASE = os.environ.get("KHANDAIA_API",      "https://sv.khanda
 # ─── Dekiki (GitHub-hosted static list) + EPG ────────────────────────────────
 DEKIKI_M3U_URL = os.environ.get(
     "DEKIKI_M3U_URL",
-    "https://raw.githubusercontent.com/Bacbenny/Truyenhinhiptv/refs/heads/main/dekiki.m3u",
+    "https://raw.githubusercontent.com/blvbatman/iptv/refs/heads/main/iptv.m3u",
 )
 EPG_URL = os.environ.get("EPG_URL", "https://vnepg.site/epg.xml")
 
