@@ -396,7 +396,9 @@ def _vongcam_is_active(match: dict) -> bool:
     start_str = match.get("startTime", "")
     if start_str:
         try:
-            dt      = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
+            if "+" not in start_str and not start_str.endswith("Z"):
+                start_str += "+00:00"
+            dt      = datetime.fromisoformat(start_str)
             elapsed = time.time() - dt.timestamp()
             if elapsed < MATCH_MAX_AGE_SECONDS:
                 return True
@@ -424,11 +426,13 @@ def _build_vongcam_lines(matches: list) -> list:
             continue
         home       = match.get("homeClub", {}).get("name", "Home").strip()
         away       = match.get("awayClub", {}).get("name", "Away").strip()
-        logo       = match.get("homeClub", {}).get("logoUrl", SPORT_LOGOS["football"])
+        logo       = _logo_from_text(tournament)
         tournament = match.get("tournamentName", "")
         start_str  = match.get("startTime", "")
         try:
-            dt       = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
+            if "+" not in start_str and not start_str.endswith("Z"):
+                start_str += "+00:00"
+            dt       = datetime.fromisoformat(start_str)
             dt_vn    = dt.astimezone(VN_TZ)
             time_str = dt_vn.strftime("%H:%M")
             date_str = dt_vn.strftime("%d/%m")
