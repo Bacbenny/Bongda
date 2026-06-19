@@ -3,7 +3,9 @@ services:
     name: iptv-server
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn main:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    # 1 worker + 8 threads = shared in-process cache (one prefetch loop, no duplicate upstream fetches)
+    # gthread worker class allows concurrent requests without GIL contention on I/O
+    startCommand: gunicorn main:app --bind 0.0.0.0:$PORT --workers 1 --worker-class gthread --threads 8 --timeout 120 --keep-alive 5
     plan: free
     envVars:
       - key: COLATV_FRONTEND
@@ -18,5 +20,11 @@ services:
         value: https://tructiep.khandaia.link
       - key: KHANDAIA_API
         value: https://sv.khandai-a.xyz/api/v1/external
+      - key: VONGCAM_FRONTEND
+        value: https://sv2.vongcam3.live
+      - key: VONGCAM_API
+        value: https://sv.bugiotv.xyz/internal/api/matches
+      - key: VONGCAM_TOKEN
+        value: AB321C
       - key: MATCH_MAX_DURATION
         value: "7200"
