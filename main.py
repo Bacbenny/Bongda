@@ -426,8 +426,8 @@ def _build_vongcam_lines(matches: list) -> list:
             continue
         home       = match.get("homeClub", {}).get("name", "Home").strip()
         away       = match.get("awayClub", {}).get("name", "Away").strip()
-        logo       = _logo_from_text(tournament)
         tournament = match.get("tournamentName", "")
+        logo       = _logo_from_text(tournament)
         start_str  = match.get("startTime", "")
         try:
             if "+" not in start_str and not start_str.endswith("Z"):
@@ -718,6 +718,35 @@ def vongcam_m3u():
 @app.route("/dekiki.m3u")
 def dekiki_m3u():
     return _m3u_response("dekiki", "dekiki.m3u")
+
+
+@app.route("/status.json")
+def status_json():
+    from flask import jsonify
+    ra    = _last_counts.get("refreshed_at", 0)
+    ra_vn = datetime.fromtimestamp(ra, tz=VN_TZ).strftime("%H:%M:%S %d/%m/%Y") if ra else None
+    next_s = max(int(PREFETCH_INTERVAL - (time.time() - ra)), 0) if ra else None
+    return jsonify({
+        "ok":           True,
+        "refreshed_at": ra_vn,
+        "next_refresh_in_seconds": next_s,
+        "last_error":   _last_counts.get("last_error", ""),
+        "channels": {
+            "total":    sum(_last_counts.get(k, 0) for k in ("cola","hoiquan","khandaia","vongcam","dekiki")),
+            "cola_tv":      _last_counts.get("cola",     0),
+            "hoiquan_tv":   _last_counts.get("hoiquan",  0),
+            "khandai_a":    _last_counts.get("khandaia", 0),
+            "vongcam_tv":   _last_counts.get("vongcam",  0),
+            "dekiki_tv":    _last_counts.get("dekiki",   0),
+        },
+        "sources": {
+            "cola_tv":    {"api": _colatv_api_cache.get("url"),   "status": "ok" if _last_counts.get("cola",0)    > 0 else "empty"},
+            "hoiquan_tv": {"api": _hoiquan_api_cache.get("url"),  "status": "ok" if _last_counts.get("hoiquan",0) > 0 else "empty"},
+            "khandai_a":  {"api": _khandaia_api_cache.get("url"), "status": "ok" if _last_counts.get("khandaia",0)> 0 else "empty"},
+            "vongcam_tv": {"api": _vongcam_api_cache.get("url"),  "status": "ok" if _last_counts.get("vongcam",0) > 0 else "empty"},
+            "dekiki_tv":  {"api": "github-static",                "status": "ok" if _last_counts.get("dekiki",0)  > 0 else "empty"},
+        },
+    })
 
 
 @app.route("/ping")
