@@ -397,7 +397,7 @@ def _vongcam_is_active(match: dict) -> bool:
     if start_str:
         try:
             if "+" not in start_str and not start_str.endswith("Z"):
-                start_str += "+00:00"
+                start_str += "+07:00"  # bugiotv API trả startTime theo giờ VN (UTC+7)
             dt      = datetime.fromisoformat(start_str)
             elapsed = time.time() - dt.timestamp()
             if elapsed < MATCH_MAX_AGE_SECONDS:
@@ -431,7 +431,7 @@ def _build_vongcam_lines(matches: list) -> list:
         start_str  = match.get("startTime", "")
         try:
             if "+" not in start_str and not start_str.endswith("Z"):
-                start_str += "+00:00"
+                start_str += "+07:00"  # bugiotv API trả startTime theo giờ VN (UTC+7)
             dt       = datetime.fromisoformat(start_str)
             dt_vn    = dt.astimezone(VN_TZ)
             time_str = dt_vn.strftime("%H:%M")
