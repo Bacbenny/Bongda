@@ -130,7 +130,9 @@ def _logo_from_text(text: str) -> str:
         return SPORT_LOGOS["athletics"]
     if any(k in t for k in ["swim", "bơi lội", "boi loi", "aquatic"]):
         return SPORT_LOGOS["swimming"]
-    if any(k in t for k in ["karate", "judo", "taekwondo", "wushu", "võ thuật", "vo thuat", "wrestling", "kung fu"]):
+    if any(k in t for k in ["karate", "judo", "taekwondo", "wushu", "võ thuật", "vo thuat",
+                              "wrestling", "kung fu", "wwe", "smackdown", "raw", "aew",
+                              "impact", "muay thai", "kickboxing", "bjj"]):
         return SPORT_LOGOS["martialarts"]
     if any(k in t for k in ["cycl", "xe đạp", "xe dap", "velo"]):
         return SPORT_LOGOS["cycling"]
@@ -450,7 +452,9 @@ def _pick_vongcam_stream(commentator: dict) -> str:
 
 
 def _vongcam_logo(match: dict) -> str:
-    """Logo cho Vòng Cấm TV — ưu tiên sportType/sport từ API, fallback tournamentName."""
+    """Logo cho Vòng Cấm TV.
+    bugiotv API không có sport-type field riêng → ghép tournamentName + title + slug + tags.
+    """
     for key in ("sportType", "sport", "sportName", "sportSlug"):
         val = match.get(key)
         if isinstance(val, dict):
@@ -458,11 +462,19 @@ def _vongcam_logo(match: dict) -> str:
             if icon:
                 return icon
             val = val.get("name") or val.get("slug") or val.get("type", "")
-        if val and isinstance(val, str):
+        if val and isinstance(val, str) and val.upper() not in ("MANUAL", "AUTO"):
             logo = _logo_from_text(val)
             if logo != SPORT_LOGOS["football"]:
                 return logo
-    return _logo_from_text(match.get("tournamentName", ""))
+    parts = [
+        match.get("tournamentName", ""),
+        match.get("title", ""),
+        match.get("slug", ""),
+    ]
+    tags = match.get("tags") or []
+    if isinstance(tags, list):
+        parts.extend(str(t) for t in tags)
+    return _logo_from_text(" ".join(p for p in parts if p))
 
 
 def _build_vongcam_lines(matches: list) -> list:
