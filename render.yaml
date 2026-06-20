@@ -26,5 +26,11 @@ services:
         value: https://sv.bugiotv.xyz/internal/api/matches
       - key: VONGCAM_TOKEN
         value: AB321C
+      - key: TIEULAM_FRONTEND
+        value: https://sv2.tieulam.info
+      - key: TIEULAM_API
+        value: https://api.tlap17062026.com
+      - key: RELAY_SECRET
+        sync: false
       - key: MATCH_MAX_DURATION
         value: "7200"
