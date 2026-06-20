@@ -30,6 +30,11 @@ VONGCAM_FRONTEND_URL   = os.environ.get("VONGCAM_FRONTEND", "https://sv2.vongcam
 VONGCAM_KNOWN_API_BASE = os.environ.get("VONGCAM_API",      "https://sv.bugiotv.xyz/internal/api/matches")
 VONGCAM_ACCESS_TOKEN   = os.environ.get("VONGCAM_TOKEN",    "AB321C")
 
+# ─── TieuLam Relay (Bongda/Render acts as relay for GitHub Actions) ─────────
+RELAY_SECRET           = os.environ.get("RELAY_SECRET", "")
+TIEULAM_FRONTEND_URL   = os.environ.get("TIEULAM_FRONTEND",  "https://sv2.tieulam.info")
+TIEULAM_KNOWN_API_BASE = os.environ.get("TIEULAM_API",        "https://api.tlap17062026.com")
+
 # ─── Dekiki (GitHub-hosted static list) + EPG ────────────────────────────────
 DEKIKI_M3U_URL = os.environ.get(
     "DEKIKI_M3U_URL",
@@ -73,6 +78,8 @@ _colatv_api_cache   = {"url": COLATV_KNOWN_API_URL,    "discovered_at": 0}
 _hoiquan_api_cache  = {"url": HOIQUAN_KNOWN_API_BASE,  "discovered_at": 0}
 _khandaia_api_cache = {"url": KHANDAIA_KNOWN_API_BASE, "discovered_at": 0}
 _vongcam_api_cache  = {"url": VONGCAM_KNOWN_API_BASE,  "discovered_at": 0}
+_tieulam_bongda_cache = {"url": TIEULAM_KNOWN_API_BASE, "discovered_at": 0.0}
+_tieulam_relay_cache  = {"data": None, "ts": 0.0}
 
 # ─── Playlist content cache ───────────────────────────────────────────────────
 # Each entry stores: raw bytes, gzip bytes, md5 etag, and build timestamp.
@@ -697,6 +704,73 @@ def _get_entry(key: str):
         return dict(entry)
 
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  TieuLam Relay — Bongda/Render làm proxy cho GitHub Actions
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _get_tieulam_api_bongda() -> str:
+    now = time.time()
+    if now - _tieulam_bongda_cache["discovered_at"] < API_DISCOVERY_TTL:
+        return _tieulam_bongda_cache["url"]
+    sc = cloudscraper.create_scraper()
+    for front in [TIEULAM_FRONTEND_URL, "https://sv1.tieulam1.live"]:
+        try:
+            html = sc.get(front, timeout=8).text
+            for js_path in re.findall(r'src="(/assets/[^"]+\.js)"', html)[:4]:
+                try:
+                    js = sc.get(front + js_path, timeout=8).text
+                    m = re.search(r'create\(\{baseURL:"(https://[^"]{10,80})"\}', js)
+                    if m and not re.search(r'cdn|live|pull|stream|secufun|asynccdn', m.group(1)):
+                        _tieulam_bongda_cache["url"] = m.group(1).rstrip("/")
+                        _tieulam_bongda_cache["discovered_at"] = now
+                        return _tieulam_bongda_cache["url"]
+                    m2 = re.search(r'"(https://api\.tlap[a-z0-9]{6,12}\.(?:com|xyz))"', js)
+                    if m2:
+                        _tieulam_bongda_cache["url"] = m2.group(1)
+                        _tieulam_bongda_cache["discovered_at"] = now
+                        return _tieulam_bongda_cache["url"]
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    return _tieulam_bongda_cache["url"]
+
+
+def _fetch_tieulam_for_relay() -> list:
+    """Fetch TieuLam matches via cloudscraper — dùng IP của Render."""
+    now_ts = time.time()
+    if _tieulam_relay_cache["data"] is not None and now_ts - _tieulam_relay_cache["ts"] < 180:
+        return _tieulam_relay_cache["data"]
+    api_base = _get_tieulam_api_bongda()
+    now_dt   = datetime.now(tz=timezone.utc)
+    cutoff   = (now_dt - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%S")
+    cutoff_e = (now_dt + timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%S")
+    payload  = {
+        "queries": [
+            {"field": "start_date", "type": "gte",       "value": cutoff},
+            {"field": "start_date", "type": "lte",       "value": cutoff_e},
+            {"field": "blv",        "type": "not_equal", "value": None},
+            {"field": "blv",        "type": "not_equal", "value": ""},
+        ],
+        "query_and": True, "limit": 50, "page": 1, "order_asc": "start_date",
+    }
+    hdrs = {
+        "Content-Type":    "application/json",
+        "Accept":          "application/json, text/plain, */*",
+        "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Origin":          TIEULAM_FRONTEND_URL,
+        "Referer":         TIEULAM_FRONTEND_URL + "/",
+    }
+    sc   = cloudscraper.create_scraper()
+    resp = sc.post(f"{api_base}/matches/graph", json=payload, headers=hdrs, timeout=20)
+    resp.raise_for_status()
+    data = resp.json().get("data") or []
+    _tieulam_relay_cache["data"] = data
+    _tieulam_relay_cache["ts"]   = now_ts
+    return data
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Flask routes
 # ══════════════════════════════════════════════════════════════════════════════
@@ -790,6 +864,30 @@ def status_json():
             "dekiki_tv":  {"api": "github-static",                "status": "ok" if _last_counts.get("dekiki",0)  > 0 else "empty"},
         },
     })
+
+
+@app.route("/tieulam-relay")
+def tieulam_relay_route():
+    """Relay TieuLam API → GitHub Actions vượt block 403.
+    Auth: X-Relay-Token (nếu RELAY_SECRET được set).
+    """
+    from flask import jsonify
+    if RELAY_SECRET:
+        if request.headers.get("X-Relay-Token", "") != RELAY_SECRET:
+            return jsonify({"error": "Unauthorized"}), 401
+    try:
+        data     = _fetch_tieulam_for_relay()
+        api_base = _tieulam_bongda_cache["url"]
+        return jsonify({"data": data, "count": len(data),
+                        "api_base": api_base, "relay": "bongda-render"})
+    except Exception as e:
+        if _tieulam_relay_cache["data"] is not None:
+            return jsonify({"data":    _tieulam_relay_cache["data"],
+                            "count":   len(_tieulam_relay_cache["data"]),
+                            "api_base": _tieulam_bongda_cache["url"],
+                            "relay":   "bongda-render", "cached": True,
+                            "stale":   True, "error": str(e)})
+        return jsonify({"error": str(e), "data": []}), 502
 
 
 @app.route("/ping")
