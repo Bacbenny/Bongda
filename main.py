@@ -28,7 +28,7 @@ KHANDAIA_KNOWN_API_BASE = os.environ.get("KHANDAIA_API",      "https://sv.khanda
 # ─── Vòng Cấm TV config ──────────────────────────────────────────────────────
 VONGCAM_FRONTEND_URL   = os.environ.get("VONGCAM_FRONTEND", "https://sv2.vongcam3.live")
 VONGCAM_KNOWN_API_BASE = os.environ.get("VONGCAM_API",      "https://sv.bugiotv.xyz/internal/api/matches")
-VONGCAM_ACCESS_TOKEN   = os.environ.get("VONGCAM_TOKEN",    "AB321C")
+VONGCAM_FALLBACK_TOKEN = os.environ.get("VONGCAM_TOKEN",    "AB321C")
 
 # ─── TieuLam Relay (Bongda/Render acts as relay for GitHub Actions) ─────────
 RELAY_SECRET           = os.environ.get("RELAY_SECRET", "")
@@ -78,6 +78,7 @@ _colatv_api_cache   = {"url": COLATV_KNOWN_API_URL,    "discovered_at": 0}
 _hoiquan_api_cache  = {"url": HOIQUAN_KNOWN_API_BASE,  "discovered_at": 0}
 _khandaia_api_cache = {"url": KHANDAIA_KNOWN_API_BASE, "discovered_at": 0}
 _vongcam_api_cache  = {"url": VONGCAM_KNOWN_API_BASE,  "discovered_at": 0}
+_vongcam_token_cache = {"token": VONGCAM_FALLBACK_TOKEN, "discovered_at": 0}
 _tieulam_bongda_cache = {"url": TIEULAM_KNOWN_API_BASE, "discovered_at": 0.0}
 _tieulam_relay_cache  = {"data": None, "ts": 0.0}
 
@@ -100,7 +101,6 @@ _last_counts = {
     "cola": 0, "hoiquan": 0, "khandaia": 0, "vongcam": 0, "dekiki": 0,
     "refreshed_at": 0, "last_error": "",
 }
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Sport logo helpers
@@ -140,7 +140,6 @@ def _logo_from_text(text: str) -> str:
         return SPORT_LOGOS["hockey"]
     return SPORT_LOGOS["football"]
 
-
 def _cola_logo(match: dict) -> str:
     parts = " ".join([
         match.get("competitionName", ""),
@@ -150,7 +149,6 @@ def _cola_logo(match: dict) -> str:
     ])
     return _logo_from_text(parts)
 
-
 def _hq_kda_logo(fixture: dict) -> str:
     sport = fixture.get("sport") or {}
     icon = sport.get("iconUrl", "")
@@ -158,7 +156,6 @@ def _hq_kda_logo(fixture: dict) -> str:
         return icon
     parts = " ".join([sport.get("name", ""), sport.get("slug", "")])
     return _logo_from_text(parts)
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Cola TV — API discovery + fetch
@@ -180,14 +177,12 @@ def _discover_colatv_api(scraper) -> str:
         pass
     return COLATV_KNOWN_API_URL
 
-
 def _get_colatv_api_url(scraper) -> str:
     now = time.time()
     if now - _colatv_api_cache["discovered_at"] > API_DISCOVERY_TTL:
         _colatv_api_cache["url"] = _discover_colatv_api(scraper)
         _colatv_api_cache["discovered_at"] = now
     return _colatv_api_cache["url"]
-
 
 def _fetch_colatv_matches() -> dict:
     scraper = cloudscraper.create_scraper()
@@ -201,7 +196,6 @@ def _fetch_colatv_matches() -> dict:
         resp = scraper.get(api_url, timeout=15)
         resp.raise_for_status()
     return resp.json().get("data", {})
-
 
 def _colatv_is_active(match: dict) -> bool:
     if match.get("matchStatus") in COLATV_FINISHED_STATUS_INT:
@@ -217,7 +211,6 @@ def _colatv_is_active(match: dict) -> bool:
         if (time.time() - match_time) > MATCH_MAX_AGE_SECONDS:
             return False
     return True
-
 
 def _build_colatv_lines(matches: dict) -> list:
     lines = []
@@ -251,7 +244,6 @@ def _build_colatv_lines(matches: dict) -> list:
             lines.append(stream_url)
     return lines
 
-
 # ══════════════════════════════════════════════════════════════════════════════
 #  Hội Quán TV — API discovery + fetch
 # ══════════════════════════════════════════════════════════════════════════════
@@ -262,7 +254,6 @@ _HQ_HEADERS = {
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     ),
 }
-
 
 def _discover_hoiquan_api(scraper) -> str:
     try:
@@ -283,14 +274,12 @@ def _discover_hoiquan_api(scraper) -> str:
         pass
     return HOIQUAN_KNOWN_API_BASE
 
-
 def _get_hoiquan_api_base(scraper) -> str:
     now = time.time()
     if now - _hoiquan_api_cache["discovered_at"] > API_DISCOVERY_TTL:
         _hoiquan_api_cache["url"] = _discover_hoiquan_api(scraper)
         _hoiquan_api_cache["discovered_at"] = now
     return _hoiquan_api_cache["url"]
-
 
 def _fetch_hoiquan_fixtures() -> list:
     scraper = cloudscraper.create_scraper()
@@ -310,7 +299,6 @@ def _fetch_hoiquan_fixtures() -> list:
     if not data.get("success"):
         return []
     return data.get("data", [])
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Khán Đài A — API discovery + fetch  (same schema as Hội Quán TV)
@@ -337,14 +325,12 @@ def _discover_khandaia_api(scraper) -> str:
         pass
     return KHANDAIA_KNOWN_API_BASE
 
-
 def _get_khandaia_api_base(scraper) -> str:
     now = time.time()
     if now - _khandaia_api_cache["discovered_at"] > API_DISCOVERY_TTL:
         _khandaia_api_cache["url"] = _discover_khandaia_api(scraper)
         _khandaia_api_cache["discovered_at"] = now
     return _khandaia_api_cache["url"]
-
 
 def _fetch_khandaia_fixtures() -> list:
     scraper = cloudscraper.create_scraper()
@@ -365,12 +351,11 @@ def _fetch_khandaia_fixtures() -> list:
         return []
     return data.get("data", [])
 
-
 # ══════════════════════════════════════════════════════════════════════════════
-#  Vòng Cấm TV — API discovery + fetch
+#  Vòng Cấm TV — API discovery + token discovery + fetch
 #  Frontend : https://sv2.vongcam3.live
 #  Matches  : https://sv.bugiotv.xyz/internal/api/matches
-#  Auth     : Access-Token header (static token discovered from JS bundle)
+#  Auth     : Access-Token header (token discovered from JS bundle, re-discovered hourly or on 401)
 #  Schema   : {code, message, data: [{id, title, tournamentName,
 #               homeClub:{name,logoUrl}, awayClub:{name,logoUrl},
 #               startTime, isLive,
@@ -394,7 +379,6 @@ def _discover_vongcam_api(scraper) -> str:
         pass
     return VONGCAM_KNOWN_API_BASE
 
-
 def _get_vongcam_api_base(scraper) -> str:
     now = time.time()
     if now - _vongcam_api_cache["discovered_at"] > API_DISCOVERY_TTL:
@@ -402,29 +386,87 @@ def _get_vongcam_api_base(scraper) -> str:
         _vongcam_api_cache["discovered_at"] = now
     return _vongcam_api_cache["url"]
 
+def _discover_vongcam_token(scraper) -> str:
+    """Re-discover the Vòng Cấm TV Access-Token from the JS bundle.
+    Looks for common patterns like "AB321C" near access-token / accessToken keys,
+    or a capitalized hex/alphanumeric literal embedded near the API call.
+    Returns the discovered token, or the fallback if nothing found.
+    """
+    token_patterns = [
+        r'["\']?(?:access[-_]?token|accessToken|token)["\']?\s*[:=]\s*["\']([A-Za-z0-9]{4,32})["\']',
+        r'headers\s*\.\s*append\s*\(\s*["\']access-token["\']\s*,\s*["\']([A-Za-z0-9]{4,32})["\']',
+        r'["\']Access-Token["\']\s*:\s*["\']([A-Za-z0-9]{4,32})["\']',
+        r'["\']access-token["\']\s*:\s*["\']([A-Za-z0-9]{4,32})["\']',
+    ]
+    try:
+        r = scraper.get(VONGCAM_FRONTEND_URL, timeout=10)
+        js_files = re.findall(r'src="(/assets/[^"]+\.js)"', r.text)
+        for js_path in js_files:
+            try:
+                js = scraper.get(VONGCAM_FRONTEND_URL.rstrip("/") + js_path, timeout=20).text
+            except Exception:
+                continue
+            for pat in token_patterns:
+                hits = re.findall(pat, js, flags=re.IGNORECASE)
+                for hit in hits:
+                    # Skip obvious false positives (pure digits or too long)
+                    if hit.isalpha() or hit.isalnum() and 4 <= len(hit) <= 32:
+                        return hit
+    except Exception:
+        pass
+    return VONGCAM_FALLBACK_TOKEN
+
+def _get_vongcam_token(scraper) -> str:
+    now = time.time()
+    if now - _vongcam_token_cache["discovered_at"] > API_DISCOVERY_TTL:
+        new_token = _discover_vongcam_token(scraper)
+        if new_token:
+            _vongcam_token_cache["token"] = new_token
+        _vongcam_token_cache["discovered_at"] = now
+    return _vongcam_token_cache["token"]
+
+def _vongcam_request(scraper, api_url: str, headers: dict):
+    """GET with current token; on 401 re-discover token once and retry."""
+    resp = scraper.get(api_url, headers=headers, timeout=15)
+    if resp.status_code == 401:
+        # Force token re-discovery then retry exactly once.
+        _vongcam_token_cache["discovered_at"] = 0
+        new_token = _get_vongcam_token(scraper)
+        headers = {**headers, "Access-Token": new_token}
+        resp = scraper.get(api_url, headers=headers, timeout=15)
+    return resp
 
 def _fetch_vongcam_matches() -> list:
     scraper = cloudscraper.create_scraper()
     api_url = _get_vongcam_api_base(scraper)
+    token   = _get_vongcam_token(scraper)
     headers = {
         **_HQ_HEADERS,
         "Referer":      VONGCAM_FRONTEND_URL + "/",
         "Origin":       VONGCAM_FRONTEND_URL,
-        "Access-Token": VONGCAM_ACCESS_TOKEN,
+        "Access-Token": token,
     }
     try:
-        resp = scraper.get(api_url, headers=headers, timeout=15)
+        resp = _vongcam_request(scraper, api_url, headers)
         resp.raise_for_status()
     except Exception:
-        _vongcam_api_cache["discovered_at"] = 0
+        # Re-discover both URL and token, then retry once.
+        _vongcam_api_cache["discovered_at"]   = 0
+        _vongcam_token_cache["discovered_at"] = 0
         api_url = _get_vongcam_api_base(scraper)
-        resp = scraper.get(api_url, headers=headers, timeout=15)
+        token   = _get_vongcam_token(scraper)
+        headers = {
+            **_HQ_HEADERS,
+            "Referer":      VONGCAM_FRONTEND_URL + "/",
+            "Origin":       VONGCAM_FRONTEND_URL,
+            "Access-Token": token,
+        }
+        resp = _vongcam_request(scraper, api_url, headers)
         resp.raise_for_status()
     data = resp.json()
     if data.get("code") != 200:
         return []
     return data.get("data", [])
-
 
 def _vongcam_is_active(match: dict) -> bool:
     if bool(match.get("isLive")):
@@ -442,14 +484,12 @@ def _vongcam_is_active(match: dict) -> bool:
             pass
     return False
 
-
 def _pick_vongcam_stream(commentator: dict) -> str:
     for key in ("streamSourceFhd", "streamSourceHd", "streamSourceSd"):
         url = (commentator.get(key) or "").strip()
         if url:
             return url
     return ""
-
 
 def _vongcam_logo(match: dict) -> str:
     """Logo cho Vòng Cấm TV.
@@ -475,7 +515,6 @@ def _vongcam_logo(match: dict) -> str:
     if isinstance(tags, list):
         parts.extend(str(t) for t in tags)
     return _logo_from_text(" ".join(p for p in parts if p))
-
 
 def _build_vongcam_lines(matches: list) -> list:
     lines = []
@@ -513,7 +552,6 @@ def _build_vongcam_lines(matches: list) -> list:
         lines.append(stream_url)
     return lines
 
-
 # ══════════════════════════════════════════════════════════════════════════════
 #  Dekiki — static GitHub M3U fetch + parse
 # ══════════════════════════════════════════════════════════════════════════════
@@ -529,7 +567,6 @@ def _fetch_dekiki_lines() -> list:
             continue
         lines.append(stripped)
     return lines
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Shared fixture helpers  (Hội Quán TV + Khán Đài A use same schema)
@@ -555,7 +592,6 @@ def _fixture_is_active(fixture: dict) -> bool:
             pass
     return True
 
-
 def _pick_best_stream(streams: list) -> str:
     for quality in ("fhd", "hd", "sd"):
         for s in streams:
@@ -568,7 +604,6 @@ def _pick_best_stream(streams: list) -> str:
         if url:
             return url
     return ""
-
 
 def _build_fixture_lines(fixtures: list, group_title: str) -> list:
     try:
@@ -603,7 +638,6 @@ def _build_fixture_lines(fixtures: list, group_title: str) -> list:
             lines.append(stream_url)
     return lines
 
-
 # ══════════════════════════════════════════════════════════════════════════════
 #  Cache helpers — build compressed + ETag
 # ══════════════════════════════════════════════════════════════════════════════
@@ -614,13 +648,11 @@ def _pack(text: str) -> dict:
     etag = '"' + hashlib.md5(raw).hexdigest() + '"'
     return {"content": raw, "gz": gz, "etag": etag, "built_at": time.time()}
 
-
 def _store(key: str, text: str):
     packed = _pack(text)
     entry  = _playlist_cache[key]
     with entry["lock"]:
         entry.update(packed)
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Background pre-fetch (parallel, 5 sources)
@@ -699,7 +731,6 @@ def _refresh_all_playlists():
         "last_error":   err_str,
     })
 
-
 def _prefetch_loop():
     time.sleep(3)
     while True:
@@ -709,13 +740,10 @@ def _prefetch_loop():
             pass
         time.sleep(PREFETCH_INTERVAL)
 
-
 def _get_entry(key: str):
     entry = _playlist_cache[key]
     with entry["lock"]:
         return dict(entry)
-
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  TieuLam Relay — Bongda/Render làm proxy cho GitHub Actions
@@ -747,7 +775,6 @@ def _get_tieulam_api_bongda() -> str:
         except Exception:
             pass
     return _tieulam_bongda_cache["url"]
-
 
 def _fetch_tieulam_for_relay() -> list:
     """Fetch TieuLam matches via cloudscraper — dùng IP của Render."""
@@ -781,7 +808,6 @@ def _fetch_tieulam_for_relay() -> list:
     _tieulam_relay_cache["data"] = data
     _tieulam_relay_cache["ts"]   = now_ts
     return data
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Flask routes
@@ -818,36 +844,29 @@ def _m3u_response(key: str, filename: str) -> Response:
         resp.headers["Content-Encoding"] = "gzip"
     return resp
 
-
 @app.route("/live.m3u")
 def live_m3u():
     return _m3u_response("combined", "live.m3u")
-
 
 @app.route("/cola.m3u")
 def cola_m3u():
     return _m3u_response("cola", "cola.m3u")
 
-
 @app.route("/hoiquan.m3u")
 def hoiquan_m3u():
     return _m3u_response("hoiquan", "hoiquan.m3u")
-
 
 @app.route("/khandaia.m3u")
 def khandaia_m3u():
     return _m3u_response("khandaia", "khandaia.m3u")
 
-
 @app.route("/vongcam.m3u")
 def vongcam_m3u():
     return _m3u_response("vongcam", "vongcam.m3u")
 
-
 @app.route("/dekiki.m3u")
 def dekiki_m3u():
     return _m3u_response("dekiki", "dekiki.m3u")
-
 
 @app.route("/status.json")
 def status_json():
@@ -872,11 +891,10 @@ def status_json():
             "cola_tv":    {"api": _colatv_api_cache.get("url"),   "status": "ok" if _last_counts.get("cola",0)    > 0 else "empty"},
             "hoiquan_tv": {"api": _hoiquan_api_cache.get("url"),  "status": "ok" if _last_counts.get("hoiquan",0) > 0 else "empty"},
             "khandai_a":  {"api": _khandaia_api_cache.get("url"), "status": "ok" if _last_counts.get("khandaia",0)> 0 else "empty"},
-            "vongcam_tv": {"api": _vongcam_api_cache.get("url"),  "status": "ok" if _last_counts.get("vongcam",0) > 0 else "empty"},
+            "vongcam_tv": {"api": _vongcam_api_cache.get("url"), "token": _vongcam_token_cache.get("token"), "status": "ok" if _last_counts.get("vongcam",0) > 0 else "empty"},
             "dekiki_tv":  {"api": "github-static",                "status": "ok" if _last_counts.get("dekiki",0)  > 0 else "empty"},
         },
     })
-
 
 @app.route("/tieulam-relay")
 def tieulam_relay_route():
@@ -901,11 +919,9 @@ def tieulam_relay_route():
                             "stale":   True, "error": str(e)})
         return jsonify({"error": str(e), "data": []}), 502
 
-
 @app.route("/ping")
 def ping():
     return Response("OK", mimetype="text/plain")
-
 
 @app.route("/")
 def index():
@@ -951,7 +967,8 @@ def index():
         f"<p>🟢 Khán Đài A: <strong>{kda_count} kênh</strong>"
         f"&nbsp;|&nbsp; <code>{_khandaia_api_cache['url']}</code></p>"
         f"<p>🟢 Vòng Cấm TV: <strong>{vc_count} kênh</strong>"
-        f"&nbsp;|&nbsp; <code>{_vongcam_api_cache['url']}</code></p>"
+        f"&nbsp;|&nbsp; <code>{_vongcam_api_cache['url']}</code>"
+        f"&nbsp;|&nbsp; token: <code>{_vongcam_token_cache['token']}</code></p>"
         f"<p>📡 Kênh TV (dekiki): <strong>{dekiki_count} kênh</strong></p>"
         f"<p>📻 EPG: <a href='{EPG_URL}' target='_blank'>{EPG_URL}</a></p>"
         f"{err_html}"
@@ -964,7 +981,6 @@ def index():
         f"<li>Làm mới cache mỗi <strong>{PREFETCH_INTERVAL // 60} phút</strong></li>"
         "</ul>"
     )
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Keep-alive self-ping
@@ -982,7 +998,6 @@ def _get_ping_url() -> str:
         return app_url.rstrip("/") + "/"
     return f"http://localhost:{os.environ.get('PORT', 5000)}/"
 
-
 def _self_ping():
     url = _get_ping_url()
     while True:
@@ -991,7 +1006,6 @@ def _self_ping():
             requests.get(url, timeout=15)
         except Exception:
             pass
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Startup
