@@ -676,7 +676,7 @@ def _refresh_all_playlists():
     def fetch_dekiki():
         return _fetch_dekiki_lines()
 
-    with ThreadPoolExecutor(max_workers=5) as ex:
+    with ThreadPoolExecutor(max_workers=2) as ex:
         futures = {
             ex.submit(fetch_cola):   "cola",
             ex.submit(fetch_hq):     "hoiquan",
