@@ -38,7 +38,7 @@ TIEULAM_KNOWN_API_BASE = os.environ.get("TIEULAM_API",        "https://api.tlap1
 # ─── Dekiki (GitHub-hosted static list) + EPG ────────────────────────────────
 DEKIKI_M3U_URL = os.environ.get(
     "DEKIKI_M3U_URL",
-    "https://raw.githubusercontent.com/blvbatman/iptv/refs/heads/main/iptv.m3u",
+    "https://raw.githubusercontent.com/Bacbenny/Bongda/refs/heads/main/xemtv.m3u",
 )
 EPG_URL = os.environ.get("EPG_URL", "https://vnepg.site/epg.xml")
 
