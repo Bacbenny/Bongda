@@ -32,8 +32,18 @@ VONGCAM_FALLBACK_TOKEN = os.environ.get("VONGCAM_TOKEN",    "AB321C")
 
 # ─── TieuLam Relay (Bongda/Render acts as relay for GitHub Actions) ─────────
 RELAY_SECRET           = os.environ.get("RELAY_SECRET", "")
-TIEULAM_FRONTEND_URL   = os.environ.get("TIEULAM_FRONTEND",  "https://sv2.tieulam.info")
+TIEULAM_FRONTEND_URL   = os.environ.get("TIEULAM_FRONTEND",  "https://sv2.tieulam1.xyz")
 TIEULAM_KNOWN_API_BASE = os.environ.get("TIEULAM_API",        "https://api.tlap17062026.com")
+
+    # Headers nhúng vào M3U để VLC / TiviMate / Kodi vượt Cloudflare khi phát stream.
+    # Lưu ý: TIEULAM_UA_REFERRER dùng domain "tieulamtv1.xyz" (có chữ 'tv') —
+    # đây là referrer CDN stream yêu cầu, khác với frontend "tieulam1.xyz".
+    TIEULAM_UA          = (
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+      "AppleWebKit/537.36 (KHTML, like Gecko) "
+      "Chrome/138.0.0.0 Safari/537.36"
+    )
+    TIEULAM_UA_REFERRER = "https://sv2.tieulamtv1.xyz/"   # referrer CDN stream yêu cầu
 
 # ─── Dekiki (GitHub-hosted static list) + EPG ────────────────────────────────
 DEKIKI_M3U_URL = os.environ.get(
@@ -140,11 +150,12 @@ _playlist_cache = {
     "hoiquan":  _empty_entry(),
     "khandaia": _empty_entry(),
     "vongcam":  _empty_entry(),
+    "tieulam":  _empty_entry(),
     "dekiki":   _empty_entry(),
 }
 
 _last_counts = {
-    "cola": 0, "hoiquan": 0, "khandaia": 0, "vongcam": 0, "dekiki": 0,
+    "cola": 0, "hoiquan": 0, "khandaia": 0, "vongcam": 0, "tieulam": 0, "dekiki": 0,
     "refreshed_at": 0, "last_error": "",
 }
 
@@ -601,6 +612,75 @@ def _build_vongcam_lines(matches: list) -> list:
     return lines
 
 # ══════════════════════════════════════════════════════════════════════════════
+    #  TiêuLâm TV — Build M3U lines
+    #  Tái sử dụng _fetch_tieulam_for_relay() (dùng chung với relay route).
+    #  Cấu trúc match: team_1/team_2, blv (string), stream_key, source_live, league
+    # ══════════════════════════════════════════════════════════════════════════════
+
+    def _build_tieulam_lines(matches: list) -> list:
+      """
+      Tạo dòng M3U cho nhóm "TiêuLâm TV".
+      Mỗi trận có 1 BLV và 1 stream. Thêm EXTVLCOPT để VLC vượt Cloudflare.
+      Stream URL: dùng source_live nếu có, fallback về stream_key qua CDN mặc định.
+      """
+      lines = []
+      try:
+          matches = sorted(matches, key=lambda m: m.get("start_date") or "")
+      except Exception:
+          pass
+
+      for match in matches:
+          # Bỏ qua trận không có BLV tiếng Việt
+          blv_name = (match.get("blv") or "").strip()
+          if not blv_name:
+              continue
+
+          # Bỏ qua trận đã kết thúc
+          if match.get("is_finished") or match.get("is_end"):
+              continue
+
+          # Xây dựng stream URL: ưu tiên source_live, fallback stream_key
+          stream_url = (match.get("source_live") or "").strip()
+          if not stream_url:
+              key = (match.get("stream_key") or "").strip()
+              if not key:
+                  continue
+              stream_url = f"https://lilive1.eu.cc/live/{key}/playlist.m3u8"
+
+          home   = (match.get("team_1") or "Home").strip()
+          away   = (match.get("team_2") or "Away").strip()
+          league = (match.get("league") or "").strip()
+          logo   = _logo_from_text(league.lower()) if league else SPORT_LOGOS["football"]
+
+          # Chuyển giờ về UTC+7
+          time_str, date_str = "--:--", "--/--"
+          start = match.get("start_date") or ""
+          if start:
+              try:
+                  if "+" not in start and not start.endswith("Z"):
+                      start += "+00:00"
+                  dt       = datetime.fromisoformat(start)
+                  dt_vn    = dt.astimezone(VN_TZ)
+                  time_str = dt_vn.strftime("%H:%M")
+                  date_str = dt_vn.strftime("%d/%m")
+              except Exception:
+                  pass
+
+          display = f"{time_str} - {date_str} | {home} VS {away}"
+          if league:
+              display += f" ({league})"
+          display += f" | {blv_name}"
+
+          lines.append(f'#EXTINF:-1 tvg-logo="{logo}" group-title="Ti\u00eauL\u00e2m TV",{display}')
+          # ── EXTVLCOPT: VLC / TiviMate / Kodi tự gán header, vượt Cloudflare ──
+          lines.append(f"#EXTVLCOPT:http-user-agent={TIEULAM_UA}")
+          lines.append(f"#EXTVLCOPT:http-referrer={TIEULAM_UA_REFERRER}")
+          # ─────────────────────────────────────────────────────────────────────
+          lines.append(stream_url)
+
+      return lines
+
+    # ══════════════════════════════════════════════════════════════════════════════
 #  Dekiki — static GitHub M3U fetch + parse
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -729,6 +809,9 @@ def _refresh_all_playlists():
     def fetch_vc():
         return _build_vongcam_lines(_fetch_vongcam_matches())
 
+    def fetch_tl():
+        return _build_tieulam_lines(_fetch_tieulam_for_relay())
+
     def fetch_dekiki():
         return _fetch_dekiki_lines()
 
@@ -738,6 +821,7 @@ def _refresh_all_playlists():
             ex.submit(fetch_hq):     "hoiquan",
             ex.submit(fetch_kda):    "khandaia",
             ex.submit(fetch_vc):     "vongcam",
+            ex.submit(fetch_tl):     "tieulam",
             ex.submit(fetch_dekiki): "dekiki",
         }
         results = {}
@@ -753,6 +837,7 @@ def _refresh_all_playlists():
     hq_lines     = results.get("hoiquan",  [])
     kda_lines    = results.get("khandaia", [])
     vc_lines     = results.get("vongcam",  [])
+    tl_lines     = results.get("tieulam",  [])
     dekiki_lines = results.get("dekiki",   [])
 
     err_str = "; ".join(errors)
@@ -768,10 +853,11 @@ def _refresh_all_playlists():
     _store("hoiquan",  epg_header + "\n" + "\n".join(hq_lines))
     _store("khandaia", epg_header + "\n" + "\n".join(kda_lines))
     _store("vongcam",  epg_header + "\n" + "\n".join(vc_lines))
+    _store("tieulam",  epg_header + "\n" + "\n".join(tl_lines))
     _store("dekiki",   epg_header + "\n" + "\n".join(dekiki_lines))
 
     # Combined — live sports first, then static TV channels
-    all_lines = cola_lines + hq_lines + kda_lines + vc_lines + dekiki_lines
+    all_lines = cola_lines + hq_lines + kda_lines + vc_lines + tl_lines + dekiki_lines
     combined_text = epg_header + "\n" + "\n".join(all_lines)
     if err_str:
         combined_text += f"\n# Errors: {err_str}"
@@ -782,6 +868,7 @@ def _refresh_all_playlists():
         "hoiquan":      count(hq_lines),
         "khandaia":     count(kda_lines),
         "vongcam":      count(vc_lines),
+        "tieulam":      count(tl_lines),
         "dekiki":       count(dekiki_lines),
         "refreshed_at": time.time(),
         "last_error":   err_str,
@@ -919,6 +1006,10 @@ def khandaia_m3u():
 @app.route("/vongcam.m3u")
 def vongcam_m3u():
     return _m3u_response("vongcam", "vongcam.m3u")
+
+@app.route("/tieulam.m3u")
+def tieulam_m3u():
+    return _m3u_response("tieulam", "tieulam.m3u")
 
 @app.route("/dekiki.m3u")
 def dekiki_m3u():
