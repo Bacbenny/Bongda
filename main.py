@@ -78,6 +78,52 @@ _colatv_api_cache   = {"url": COLATV_KNOWN_API_URL,    "discovered_at": 0}
 _hoiquan_api_cache  = {"url": HOIQUAN_KNOWN_API_BASE,  "discovered_at": 0}
 _khandaia_api_cache = {"url": KHANDAIA_KNOWN_API_BASE, "discovered_at": 0}
 _vongcam_api_cache  = {"url": VONGCAM_KNOWN_API_BASE,  "discovered_at": 0}
+
+# ─── Auto domain resolution ───────────────────────────────────────────────────
+def _resolve_base_url(url: str, timeout: int = 8) -> str:
+    """Follow HTTP 3xx redirects và trả về scheme+host cuối cùng.
+    Tự động phát hiện khi domain đổi (vd: khandaia.link → khandaia4.link).
+    """
+    try:
+        r = requests.get(
+            url, timeout=timeout, allow_redirects=True,
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+        )
+        final = r.url or url
+    except Exception:
+        final = url
+    m = re.match(r"(https?://[^/?#]+)", final)
+    return m.group(1) if m else url.rstrip("/")
+
+
+def _resolve_all_frontends() -> None:
+    """Tự động cập nhật HOIQUAN/KHANDAIA/VONGCAM _FRONTEND_URL bằng cách follow redirect.
+    Gọi lúc đầu mỗi chu kỳ refresh để luôn dùng domain thực tế.
+    """
+    global HOIQUAN_FRONTEND_URL, KHANDAIA_FRONTEND_URL, VONGCAM_FRONTEND_URL
+    sources = {
+        "Hội Quán TV": ("HOIQUAN",  HOIQUAN_FRONTEND_URL),
+        "Khán Đài A":  ("KHANDAIA", KHANDAIA_FRONTEND_URL),
+        "Vòng Cấm TV": ("VONGCAM",  VONGCAM_FRONTEND_URL),
+    }
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futures = {pool.submit(_resolve_base_url, cfg[1]): (name, cfg) for name, cfg in sources.items()}
+        for fut in as_completed(futures):
+            (name, (key, original)) = futures[fut]
+            try:
+                resolved = fut.result()
+            except Exception:
+                resolved = original
+            if resolved != original.rstrip("/"):
+                print(f"[domain-resolve] {name}: {original} → {resolved}", flush=True)
+            if key == "HOIQUAN":
+                HOIQUAN_FRONTEND_URL = resolved
+            elif key == "KHANDAIA":
+                KHANDAIA_FRONTEND_URL = resolved
+            elif key == "VONGCAM":
+                VONGCAM_FRONTEND_URL = resolved
+
+
 _vongcam_token_cache = {"token": VONGCAM_FALLBACK_TOKEN, "discovered_at": 0}
 _tieulam_bongda_cache = {"url": TIEULAM_KNOWN_API_BASE, "discovered_at": 0.0}
 _tieulam_relay_cache  = {"data": None, "ts": 0.0}
@@ -549,7 +595,9 @@ def _build_vongcam_lines(matches: list) -> list:
         nickname = (commentator.get("nickname") or "").strip()
         display  = f"{time_str} - {date_str} | {home} VS {away} ({tournament}) | {nickname}"
         lines.append(f'#EXTINF:-1 tvg-logo="{logo}" group-title="Vòng Cấm TV",{display}')
-        lines.append(stream_url)
+        _vc_ref = VONGCAM_FRONTEND_URL.rstrip("/") + "/"
+        _vc_url = stream_url + (f"|Referer={_vc_ref}&User-Agent=Mozilla/5.0" if "|" not in stream_url else "")
+        lines.append(_vc_url)
     return lines
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -635,7 +683,13 @@ def _build_fixture_lines(fixtures: list, group_title: str) -> list:
                 continue
             display = f"{time_str} - {date_str} | {home} VS {away} ({league}) | {name}"
             lines.append(f'#EXTINF:-1 tvg-logo="{logo}" group-title="{group_title}",{display}')
-            lines.append(stream_url)
+            _referer_map = {
+                "Hội Quán TV": HOIQUAN_FRONTEND_URL.rstrip("/") + "/",
+                "Khán Đài A":  KHANDAIA_FRONTEND_URL.rstrip("/") + "/",
+            }
+            _ref = _referer_map.get(group_title, "")
+            _final_url = stream_url + (f"|Referer={_ref}&User-Agent=Mozilla/5.0" if _ref and "|" not in stream_url else "")
+            lines.append(_final_url)
     return lines
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -659,6 +713,8 @@ def _store(key: str, text: str):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _refresh_all_playlists():
+    # Tự động follow redirect để cập nhật domain thực tế
+    _resolve_all_frontends()
     errors = []
 
     def fetch_cola():
