@@ -34,6 +34,12 @@ services:
         value: https://bongda-1.onrender.com
       - key: TIEULAM_CF_STREAM_RELAY
         value: https://tieulam-relay.bacbenny95.workers.dev
+      - key: TIEULAM_VN_RELAY_URL
+        sync: false
+      - key: TIEULAM_VN_RELAY_SECRET
+        sync: false
+      - key: TIEULAM_HTTP_PROXY
+        sync: false
       - key: RELAY_SECRET
         sync: false
       - key: MATCH_MAX_DURATION
