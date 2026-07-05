@@ -57,19 +57,41 @@ function allowedStreamUrl(u) {
 }
 
 async function fetchLiveUrls(env, matchId) {
-  const base = await discoverApiBase(env, false);
-  const r = await fetch(`${base}/match/${matchId}/live`, {
-    headers: TIEULAM_HDR,
-    signal: AbortSignal.timeout(FETCH_TIMEOUT),
-  });
-  if (!r.ok) return null;
-  const data = await r.json();
-  return {
-    hd1: data.hd_1 || "",
-    hd2: data.hd_2 || "",
-    hd3: data.hd_3 || "",
-    source: data.source || "",
+  const liveHdr = {
+    Accept: "application/json, text/plain, */*",
+    "User-Agent": TIEULAM_HDR["User-Agent"],
+    Referer: TIEULAM_HDR.Referer,
+    Origin: TIEULAM_HDR.Origin,
   };
+  const discovered = await discoverApiBase(env, false);
+  const bases = [
+    env.TIEULAM_API_OVERRIDE?.replace(/\/$/, ""),
+    _apiBase?.replace(/\/$/, ""),
+    discovered,
+    "https://api.tlap17062026.com",
+  ].filter(Boolean);
+  const seen = new Set();
+
+  for (const base of bases) {
+    if (!base || seen.has(base)) continue;
+    seen.add(base);
+    try {
+      const r = await fetch(`${base}/match/${matchId}/live`, {
+        headers: liveHdr,
+        signal: AbortSignal.timeout(FETCH_TIMEOUT),
+      });
+      if (!r.ok) continue;
+      const data = await r.json();
+      return {
+        hd1: data.hd_1 || "",
+        hd2: data.hd_2 || "",
+        hd3: data.hd_3 || "",
+        source: data.source || "",
+        api_base: base,
+      };
+    } catch (_) {}
+  }
+  return null;
 }
 
 function viCandidates(live) {
@@ -141,7 +163,7 @@ async function handleStreamMatch(req, env, matchId) {
   if (live.source) {
     return Response.redirect(live.source, 302);
   }
-  return new Response("No stream", { status: 502, headers: CORS });
+  return new Response("HD1 blocked (403) and no foreign source", { status: 502, headers: CORS });
 }
 
 async function handleStreamProxy(req, url) {
