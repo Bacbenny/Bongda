@@ -37,8 +37,11 @@ TIEULAM_FRONTEND_URL   = os.environ.get("TIEULAM_FRONTEND",  "https://sv2.tieula
 TIEULAM_KNOWN_API_BASE = os.environ.get("TIEULAM_API",        "https://api.tlap17062026.com")
 TIEULAM_STREAM_CDN     = os.environ.get("TIEULAM_STREAM_CDN", "https://live.secufun.xyz").rstrip("/")
 PUBLIC_BASE_URL        = os.environ.get("PUBLIC_BASE_URL", "https://bongda-1.onrender.com").rstrip("/")
-# CF stream relay — tùy chọn; để trống nếu chưa deploy worker riêng
-TIEULAM_CF_STREAM_RELAY = os.environ.get("TIEULAM_CF_STREAM_RELAY", "").rstrip("/")
+# CF stream relay — fetch HD1 từ IP Cloudflare (bypass block Render)
+TIEULAM_CF_STREAM_RELAY = os.environ.get(
+    "TIEULAM_CF_STREAM_RELAY",
+    "https://tieulam-relay.bacbenny95.workers.dev",
+).rstrip("/")
 
 # Referrer cho CDN asynccdn — khớp TIEULAM_FRONTEND (render.yaml: sv2.tieulam.info).
 TIEULAM_UA          = (
@@ -990,28 +993,42 @@ def _build_tieulam_lines(matches: list, api_base: str = "") -> list:
         )
         vi_probed = vi_cached.get("probed_ok", False)
         backup = fallback if fallback and not _tieulam_needs_proxy(fallback) else ""
+        vi_url = hd1 or hd2 or hd3 or primary
 
         if is_live_vi:
-            if TIEULAM_CF_STREAM_RELAY and _tieulam_probe_cf_match(match_id):
-                stream_url = _tieulam_cf_match_url(match_id)
-                use_vlcopt = False
-            elif vi_probed or not backup:
-                stream_url = _tieulam_public_url(f"/tieulam-stream/{match_id}.m3u8")
-                use_vlcopt = False
-            else:
-                stream_url = backup
-                backup = ""
-                use_vlcopt = False
+            # 1) Pipe header — TiviMate/VLC gửi Referer từ IP thiết bị user (thường bypass 403)
+            _append_tieulam_entry(
+                lines, logo, f"{display} [HD1 Việt]",
+                _tieulam_pipe_url(vi_url), use_vlcopt=True,
+            )
+            # 2) CF Worker — fetch asynccdn từ edge Cloudflare (sau khi deploy workers/tieulam-relay.js)
+            if TIEULAM_CF_STREAM_RELAY:
+                _append_tieulam_entry(
+                    lines, logo, f"{display} [HD1 CF]",
+                    _tieulam_cf_match_url(match_id), use_vlcopt=False,
+                )
+            # 3) Render proxy — chỉ khi probe OK (Render fetch được trực tiếp)
+            if vi_probed:
+                _append_tieulam_entry(
+                    lines, logo, display,
+                    _tieulam_public_url(f"/tieulam-stream/{match_id}.m3u8"),
+                    use_vlcopt=False,
+                )
+            # 4) Giọng ngoại — luôn hoạt động
+            if backup:
+                _append_tieulam_entry(
+                    lines, logo, f"{display} [Giọng ngoài]",
+                    backup, use_vlcopt=False,
+                )
         else:
             stream_url = _tieulam_pipe_url(primary)
             use_vlcopt = bool(stream_url and "asynccdn.com" in stream_url)
+            _append_tieulam_entry(lines, logo, display, stream_url, use_vlcopt=use_vlcopt)
             if backup:
-                backup = _tieulam_pipe_url(backup) if _tieulam_needs_proxy(backup) else backup
-
-        _append_tieulam_entry(lines, logo, display, stream_url, use_vlcopt=use_vlcopt)
-        if backup and backup != stream_url:
-            fb_vlcopt = _tieulam_needs_proxy(backup)
-            _append_tieulam_entry(lines, logo, f"{display} [Dự phòng]", backup, use_vlcopt=fb_vlcopt)
+                fb_vlcopt = _tieulam_needs_proxy(backup)
+                _append_tieulam_entry(
+                    lines, logo, f"{display} [Dự phòng]", backup, use_vlcopt=fb_vlcopt,
+                )
 
     return lines
 
@@ -1441,14 +1458,17 @@ def tieulam_stream_test(match_id: str):
     code, body, ct, used = _tieulam_fetch_vi_playlist(match_id)
     preview = body[:80].decode("utf-8", errors="replace") if body else ""
     cf_ok = _tieulam_probe_cf_match(match_id) if TIEULAM_CF_STREAM_RELAY else False
+    pipe_hd1 = _tieulam_pipe_url(hd1 or hd2 or hd3 or best or "")
     return jsonify({
-        "ok": code == 200,
+        "ok": code == 200 or cf_ok,
         "match_id": match_id,
         "hd1": hd1, "hd2": hd2, "hd3": hd3,
         "probed_best": best,
         "probed_ok": probed,
         "cf_relay": TIEULAM_CF_STREAM_RELAY or None,
         "cf_ok": cf_ok,
+        "cf_url": _tieulam_cf_match_url(match_id) if TIEULAM_CF_STREAM_RELAY else "",
+        "pipe_hd1_url": pipe_hd1,
         "used_upstream": used,
         "http_status": code,
         "content_type": ct,
@@ -1456,6 +1476,11 @@ def tieulam_stream_test(match_id: str):
         "proxy_url": _tieulam_public_url(f"/tieulam-stream/{match_id}.m3u8"),
         "public_base_url": PUBLIC_BASE_URL or _request_root(),
         "foreign_fallback": _tieulam_foreign_fallback(match_id) or src,
+        "plan": {
+            "hd1_viet": "M3U entry [HD1 Việt] — pipe header, dùng TiviMate/VLC",
+            "hd1_cf": "M3U entry [HD1 CF] — cần deploy workers/tieulam-relay.js (GitHub Actions)",
+            "foreign": "M3U entry [Giọng ngoài] — lilive, luôn hoạt động",
+        },
     })
 
 @app.route("/tieulam-relay")
@@ -1514,7 +1539,7 @@ def index():
         "<li><a href='/hoiquan.m3u'>/hoiquan.m3u</a> — Hội Quán TV only</li>"
         "<li><a href='/khandaia.m3u'>/khandaia.m3u</a> — Khán Đài A only</li>"
         "<li><a href='/vongcam.m3u'>/vongcam.m3u</a> — Vòng Cấm TV only</li>"
-        "<li><a href='/tieulam.m3u'>/tieulam.m3u</a> — Tiêu Lâm TV (Render proxy HD1/HD2/HD3)</li>"
+        "<li><a href='/tieulam.m3u'>/tieulam.m3u</a> — Tiêu Lâm TV ([HD1 Việt] pipe + [HD1 CF] + [Giọng ngoài])</li>"
         "<li><a href='/dekiki.m3u'>/dekiki.m3u</a> — Kênh TV Việt (dekiki)</li>"
         "</ul>"
         "<h3>📊 Trạng thái</h3>"
