@@ -33,7 +33,7 @@ services:
       - key: PUBLIC_BASE_URL
         value: https://bongda-1.onrender.com
       - key: TIEULAM_CF_STREAM_RELAY
-        sync: false
+        value: https://tieulam-relay.bacbenny95.workers.dev
       - key: RELAY_SECRET
         sync: false
       - key: MATCH_MAX_DURATION
