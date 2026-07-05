@@ -31,33 +31,6 @@ VONGCAM_FRONTEND_URL   = os.environ.get("VONGCAM_FRONTEND", "https://sv2.vongcam
 VONGCAM_KNOWN_API_BASE = os.environ.get("VONGCAM_API",      "https://sv.bugiotv.xyz/internal/api/matches")
 VONGCAM_FALLBACK_TOKEN = os.environ.get("VONGCAM_TOKEN",    "AB321C")
 
-# ─── TieuLam Relay (Bongda/Render acts as relay for GitHub Actions) ─────────
-RELAY_SECRET           = os.environ.get("RELAY_SECRET", "")
-TIEULAM_FRONTEND_URL   = os.environ.get("TIEULAM_FRONTEND",  "https://sv2.tieulam1.xyz")
-TIEULAM_KNOWN_API_BASE = os.environ.get("TIEULAM_API",        "https://api.tlap17062026.com")
-TIEULAM_STREAM_CDN     = os.environ.get("TIEULAM_STREAM_CDN", "https://live.secufun.xyz").rstrip("/")
-PUBLIC_BASE_URL        = os.environ.get("PUBLIC_BASE_URL", "https://bongda-1.onrender.com").rstrip("/")
-# CF stream relay — fetch HD1 từ IP Cloudflare (bypass block Render)
-TIEULAM_CF_STREAM_RELAY = os.environ.get(
-    "TIEULAM_CF_STREAM_RELAY",
-    "https://tieulam-relay.bacbenny95.workers.dev",
-).rstrip("/")
-# VN relay — VPS/máy nhà IP Việt Nam (cách duy nhất bypass chặn IP datacenter)
-TIEULAM_VN_RELAY_URL    = os.environ.get("TIEULAM_VN_RELAY_URL", "").rstrip("/")
-TIEULAM_VN_RELAY_SECRET = os.environ.get("TIEULAM_VN_RELAY_SECRET", "")
-# HTTP/SOCKS5 proxy IP Việt Nam (vd: socks5://user:pass@host:port)
-TIEULAM_HTTP_PROXY      = os.environ.get("TIEULAM_HTTP_PROXY", "").strip()
-
-# Referrer cho CDN asynccdn — khớp TIEULAM_FRONTEND (render.yaml: sv2.tieulam.info).
-TIEULAM_UA          = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/138.0.0.0 Safari/537.36"
-)
-
-def _tieulam_stream_referrer() -> str:
-    return TIEULAM_FRONTEND_URL.rstrip("/") + "/"
-
 # ─── Dekiki (GitHub-hosted static list) + EPG ────────────────────────────────
 DEKIKI_M3U_URL = os.environ.get(
     "DEKIKI_M3U_URL",
@@ -148,10 +121,6 @@ def _resolve_all_frontends() -> None:
 
 
 _vongcam_token_cache = {"token": VONGCAM_FALLBACK_TOKEN, "discovered_at": 0}
-_tieulam_bongda_cache = {"url": TIEULAM_KNOWN_API_BASE, "discovered_at": 0.0}
-_tieulam_relay_cache  = {"data": None, "ts": 0.0}
-_tieulam_stream_cache = {}  # match_id -> {upstream, hd1, hd2, hd3, probed_ok, ts}
-_tieulam_scraper_local = threading.local()
 
 # ─── Playlist content cache ───────────────────────────────────────────────────
 # Each entry stores: raw bytes, gzip bytes, md5 etag, and build timestamp.
@@ -165,12 +134,11 @@ _playlist_cache = {
     "hoiquan":  _empty_entry(),
     "khandaia": _empty_entry(),
     "vongcam":  _empty_entry(),
-    "tieulam":  _empty_entry(),
     "dekiki":   _empty_entry(),
 }
 
 _last_counts = {
-    "cola": 0, "hoiquan": 0, "khandaia": 0, "vongcam": 0, "tieulam": 0, "dekiki": 0,
+    "cola": 0, "hoiquan": 0, "khandaia": 0, "vongcam": 0, "dekiki": 0,
     "refreshed_at": 0, "last_error": "",
 }
 
@@ -627,450 +595,6 @@ def _build_vongcam_lines(matches: list) -> list:
     return lines
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  TiêuLâm TV — Build M3U lines
-#  Tái sử dụng _fetch_tieulam_for_relay() (dùng chung với relay route).
-#  Cấu trúc match: team_1/team_2, blv (string), stream_key, source_live, league
-#  Stream live: /match/{id}/live → hd_1/hd_2 (BLV tiếng Việt), source (giọng ngoại)
-# ══════════════════════════════════════════════════════════════════════════════
-
-def _tieulam_api_headers() -> dict:
-    return {
-        "Accept":          "application/json, text/plain, */*",
-        "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Origin":          TIEULAM_FRONTEND_URL,
-        "Referer":         TIEULAM_FRONTEND_URL + "/",
-    }
-
-def _fetch_tieulam_live_urls(api_base: str, match_id: str) -> tuple[str, str, str, str]:
-    """Gọi /match/{id}/live — trả về (hd_1, hd_2, hd_3, source)."""
-    empty = ("", "", "", "")
-    if not api_base or not match_id:
-        return empty
-    try:
-        sc = cloudscraper.create_scraper()
-        r = sc.get(
-            f"{api_base.rstrip('/')}/match/{match_id}/live",
-            headers=_tieulam_api_headers(),
-            timeout=8,
-        )
-        if r.status_code != 200:
-            return empty
-        data = r.json()
-        out: list[str] = []
-        seen: set[str] = set()
-        for key in ("hd_1", "hd_2", "hd_3", "source"):
-            val = (data.get(key) or "").strip()
-            if val and val not in seen:
-                seen.add(val)
-                out.append(val)
-            else:
-                out.append("")
-        while len(out) < 4:
-            out.append("")
-        return tuple(out[:4])  # type: ignore[return-value]
-    except Exception:
-        return empty
-
-def _tieulam_cdn_headers() -> dict:
-    """Header gửi lên CDN asynccdn — dùng frontend thực tế trên Render."""
-    front = TIEULAM_FRONTEND_URL.rstrip("/")
-    return {
-        "User-Agent":      TIEULAM_UA,
-        "Referer":         front + "/",
-        "Origin":          front,
-        "Accept":          "*/*",
-        "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
-    }
-
-def _tieulam_needs_proxy(url: str) -> bool:
-    return bool(url and "asynccdn.com" in url)
-
-def _tieulam_request_proxies() -> dict[str, str]:
-    if not TIEULAM_HTTP_PROXY:
-        return {}
-    return {"http": TIEULAM_HTTP_PROXY, "https": TIEULAM_HTTP_PROXY}
-
-def _tieulam_scraper():
-    sc = getattr(_tieulam_scraper_local, "sc", None)
-    if sc is None:
-        sc = cloudscraper.create_scraper()
-        _tieulam_scraper_local.sc = sc
-    return sc
-
-def _tieulam_fetch_via_vn_relay(url: str) -> tuple[int, bytes, str]:
-    """Fetch qua relay chạy trên VPS/máy IP Việt Nam."""
-    if not TIEULAM_VN_RELAY_URL or not _tieulam_needs_proxy(url):
-        return 0, b"", ""
-    try:
-        relay = f"{TIEULAM_VN_RELAY_URL}/fetch?u={quote(url, safe='')}"
-        hdrs  = {"User-Agent": TIEULAM_UA}
-        if TIEULAM_VN_RELAY_SECRET:
-            hdrs["X-Relay-Token"] = TIEULAM_VN_RELAY_SECRET
-        r = requests.get(relay, headers=hdrs, timeout=20)
-        ct = (r.headers.get("Content-Type") or "").split(";")[0].strip()
-        return r.status_code, r.content, ct
-    except Exception:
-        return 0, b"", ""
-
-def _tieulam_vi_candidates(hd1: str, hd2: str, hd3: str) -> list[str]:
-    out: list[str] = []
-    seen: set[str] = set()
-    for u in (hd1, hd2, hd3):
-        if u and u not in seen:
-            seen.add(u)
-            out.append(u)
-    return out
-
-def _tieulam_is_playlist(body: bytes) -> bool:
-    return bool(body) and b"#EXTM3U" in body[:256]
-
-def _tieulam_public_url(path: str) -> str:
-    """URL tuyệt đối cho M3U — prefetch chạy ngoài request context."""
-    if path.startswith(("http://", "https://")):
-        return path
-    if PUBLIC_BASE_URL:
-        return f"{PUBLIC_BASE_URL}{path if path.startswith('/') else '/' + path}"
-    return path
-
-def _tieulam_cf_match_url(match_id: str) -> str:
-    return f"{TIEULAM_CF_STREAM_RELAY}/stream/match/{match_id}.m3u8"
-
-def _tieulam_cf_proxy_url(raw_url: str) -> str:
-    return f"{TIEULAM_CF_STREAM_RELAY}/stream/proxy?u={quote(raw_url, safe='')}"
-
-def _tieulam_fetch_upstream(url: str) -> tuple[int, bytes, str]:
-    """
-    Fetch CDN asynccdn — thứ tự bypass:
-    1) HTTP proxy IP VN (TIEULAM_HTTP_PROXY)
-    2) VN relay VPS (TIEULAM_VN_RELAY_URL)
-    3) Render/CF trực tiếp (thường 403)
-    4) CF stream relay
-    """
-    code, body, ct = 0, b"", ""
-    proxies = _tieulam_request_proxies() or None
-    try:
-        r  = _tieulam_scraper().get(
-            url, headers=_tieulam_cdn_headers(), timeout=15, proxies=proxies,
-        )
-        ct = (r.headers.get("Content-Type") or "").split(";")[0].strip()
-        code, body = r.status_code, r.content
-        if code == 200 and body:
-            return code, body, ct
-    except Exception:
-        pass
-    if _tieulam_needs_proxy(url):
-        vn_code, vn_body, vn_ct = _tieulam_fetch_via_vn_relay(url)
-        if vn_code == 200 and vn_body:
-            return vn_code, vn_body, vn_ct
-    if TIEULAM_CF_STREAM_RELAY and _tieulam_needs_proxy(url):
-        try:
-            r = requests.get(
-                _tieulam_cf_proxy_url(url),
-                timeout=20,
-                headers={"User-Agent": TIEULAM_UA},
-            )
-            ct = (r.headers.get("Content-Type") or "").split(";")[0].strip()
-            if r.status_code == 200 and r.content:
-                return r.status_code, r.content, ct
-        except Exception:
-            pass
-    return code, body, ct
-
-def _tieulam_probe_upstream(url: str) -> bool:
-    code, body, _ = _tieulam_fetch_upstream(url)
-    return code == 200 and _tieulam_is_playlist(body)
-
-def _tieulam_probe_best_vi(hd1: str, hd2: str, hd3: str) -> tuple[str, bool]:
-    """Thử HD1 → HD2 → HD3, chọn link CDN trả playlist hợp lệ."""
-    for url in _tieulam_vi_candidates(hd1, hd2, hd3):
-        if _tieulam_probe_upstream(url):
-            return url, True
-    candidates = _tieulam_vi_candidates(hd1, hd2, hd3)
-    return (candidates[0], False) if candidates else ("", False)
-
-def _tieulam_probe_cf_match(match_id: str) -> bool:
-    if not TIEULAM_CF_STREAM_RELAY or not match_id:
-        return False
-    try:
-        r = requests.get(
-            _tieulam_cf_match_url(match_id),
-            timeout=12,
-            headers={"User-Agent": TIEULAM_UA},
-        )
-        return r.status_code == 200 and _tieulam_is_playlist(r.content)
-    except Exception:
-        return False
-
-def _tieulam_store_stream_cache(
-    match_id: str,
-    hd1: str,
-    hd2: str,
-    hd3: str,
-    upstream: str,
-    probed_ok: bool,
-) -> None:
-    if not match_id:
-        return
-    _tieulam_stream_cache[match_id] = {
-        "upstream": upstream,
-        "hd1": hd1,
-        "hd2": hd2,
-        "hd3": hd3,
-        "probed_ok": probed_ok,
-        "ts": time.time(),
-    }
-
-def _tieulam_fetch_vi_playlist(match_id: str) -> tuple[int, bytes, str, str]:
-    """Fetch playlist BLV Việt — failover HD1 → HD2 → HD3."""
-    now    = time.time()
-    cached = _tieulam_stream_cache.get(match_id) or {}
-    hd1 = cached.get("hd1", "")
-    hd2 = cached.get("hd2", "")
-    hd3 = cached.get("hd3", "")
-
-    if not (hd1 or hd2 or hd3) or now - cached.get("ts", 0) >= 120:
-        api_base = _get_tieulam_api_bongda()
-        hd1, hd2, hd3, _ = _fetch_tieulam_live_urls(api_base, match_id)
-
-    ordered = _tieulam_vi_candidates(hd1, hd2, hd3)
-    if not ordered:
-        return 0, b"", "", ""
-
-    seen: set[str] = set()
-    for url in ordered:
-        if url in seen:
-            continue
-        seen.add(url)
-        code, body, ct = _tieulam_fetch_upstream(url)
-        if code == 200 and body and (_tieulam_is_playlist(body) or url.endswith(".m3u8")):
-            _tieulam_store_stream_cache(match_id, hd1, hd2, hd3, url, True)
-            return code, body, ct, url
-
-    _tieulam_store_stream_cache(match_id, hd1, hd2, hd3, ordered[0], False)
-    return 0, b"", "", ordered[0]
-
-def _request_root() -> str:
-    if PUBLIC_BASE_URL:
-        return PUBLIC_BASE_URL
-    proto = request.headers.get("X-Forwarded-Proto", request.scheme)
-    host  = request.headers.get("X-Forwarded-Host") or request.headers.get("Host") or request.host
-    return f"{proto}://{host}".rstrip("/")
-
-def _tieulam_proxy_url(raw_url: str, proxy_root: str) -> str:
-    return f"{proxy_root}/tieulam-stream/proxy?u={quote(raw_url, safe='')}"
-
-def _tieulam_rewrite_m3u8(body: str, upstream_url: str, proxy_root: str) -> str:
-    base = upstream_url.rsplit("/", 1)[0] + "/"
-
-    def to_proxy(raw: str) -> str:
-        return _tieulam_proxy_url(urljoin(base, raw.strip()), proxy_root)
-
-    out: list[str] = []
-    for line in body.splitlines():
-        stripped = line.strip()
-        if not stripped:
-            out.append(line)
-            continue
-        if stripped.startswith("#"):
-            m = re.search(r'URI="([^"]+)"', line)
-            if m:
-                line = line.replace(m.group(0), f'URI="{to_proxy(m.group(1))}"')
-            out.append(line)
-        else:
-            out.append(to_proxy(stripped))
-    return "\n".join(out) + "\n"
-
-def _tieulam_foreign_fallback(match_id: str) -> str:
-    for m in _tieulam_relay_cache.get("data") or []:
-        if (m.get("id") or "") == match_id:
-            u = (m.get("source_live") or "").strip()
-            if u:
-                return u
-    try:
-        api_base = _get_tieulam_api_bongda()
-        *_, src = _fetch_tieulam_live_urls(api_base, match_id)
-        return (src or "").strip()
-    except Exception:
-        return ""
-
-def _pick_tieulam_stream(
-    match: dict,
-    hd1: str,
-    hd2: str,
-    hd3: str,
-    live_source: str,
-) -> tuple[str, str]:
-    """
-    Chọn link phát: ưu tiên BLV tiếng Việt (HD1 → HD2 → HD3),
-    chỉ dùng source_live / CDN nước ngoài khi không có HD tiếng Việt.
-    Trả về (primary_url, fallback_url).
-    """
-    source_live = (match.get("source_live") or live_source or "").strip()
-    stream_key  = (match.get("stream_key") or "").strip()
-    cdn_url     = f"{TIEULAM_STREAM_CDN}/live/{stream_key}/playlist.m3u8" if stream_key else ""
-
-    vi_stream = hd1 or hd2 or hd3
-    foreign   = source_live
-
-    if vi_stream:
-        primary  = vi_stream
-        # Dự phòng: giọng ngoại hoặc CDN khác — không dùng HD2/HD3 asynccdn
-        fallback = ""
-        if foreign and foreign != primary and not _tieulam_needs_proxy(foreign):
-            fallback = foreign
-        elif cdn_url and cdn_url != primary:
-            fallback = cdn_url
-        return primary, fallback
-
-    if foreign:
-        return foreign, ""
-    if cdn_url:
-        return cdn_url, ""
-    return "", ""
-
-def _tieulam_pipe_url(url: str) -> str:
-    """Gắn Referer + User-Agent vào URL (TiviMate/VLC) cho CDN asynccdn."""
-    if not url or "|" in url or "asynccdn.com" not in url:
-        return url
-    ref = _tieulam_stream_referrer()
-    return f"{url}|Referer={ref}&User-Agent={TIEULAM_UA}"
-
-def _append_tieulam_entry(
-    lines: list, logo: str, display: str, stream_url: str, *, use_vlcopt: bool = True,
-) -> None:
-    lines.append(f'#EXTINF:-1 tvg-logo="{logo}" group-title="TiêuLâm TV",{display}')
-    if use_vlcopt:
-        ref = _tieulam_stream_referrer()
-        lines.append(f"#EXTVLCOPT:http-user-agent={TIEULAM_UA}")
-        lines.append(f"#EXTVLCOPT:http-referrer={ref}")
-    lines.append(stream_url)
-
-def _build_tieulam_lines(matches: list, api_base: str = "") -> list:
-    """
-    Tạo dòng M3U cho nhóm "TiêuLâm TV".
-    Với trận live/live_integrated: gọi /match/{id}/live để lấy HD1/HD2 (BLV tiếng Việt).
-    """
-    lines: list[str] = []
-    try:
-        matches = sorted(matches, key=lambda m: m.get("start_date") or "")
-    except Exception:
-        pass
-
-    live_jobs = [
-        m for m in matches
-        if (m.get("id") or "").strip()
-        and (m.get("stream_key") or "").strip()
-        and (m.get("is_live") or m.get("live_integrated"))
-    ]
-    live_urls: dict[str, tuple[str, str, str, str]] = {}
-    if api_base and live_jobs:
-        def _fetch_live_bundle(m: dict) -> tuple[str, tuple[str, str, str, str]]:
-            mid = m["id"]
-            urls = _fetch_tieulam_live_urls(api_base, mid)
-            hd1, hd2, hd3, _ = urls
-            best, ok = _tieulam_probe_best_vi(hd1, hd2, hd3)
-            _tieulam_store_stream_cache(mid, hd1, hd2, hd3, best, ok)
-            return mid, urls
-
-        with ThreadPoolExecutor(max_workers=min(len(live_jobs), 8)) as pool:
-            futures = {pool.submit(_fetch_live_bundle, m): m["id"] for m in live_jobs}
-            for fut in as_completed(futures):
-                mid = futures[fut]
-                try:
-                    _, urls = fut.result()
-                    live_urls[mid] = urls
-                except Exception:
-                    live_urls[mid] = ("", "", "", "")
-
-    for match in matches:
-        blv_name = (match.get("blv") or "").strip()
-        if not blv_name:
-            continue
-        if match.get("is_finished") or match.get("is_end"):
-            continue
-
-        match_id = (match.get("id") or "").strip()
-        hd1 = hd2 = hd3 = live_source = ""
-        if match_id in live_urls:
-            hd1, hd2, hd3, live_source = live_urls[match_id]
-
-        primary, fallback = _pick_tieulam_stream(match, hd1, hd2, hd3, live_source)
-        if not primary:
-            continue
-
-        home   = (match.get("team_1") or "Home").strip()
-        away   = (match.get("team_2") or "Away").strip()
-        league = (match.get("league") or "").strip()
-        logo   = _logo_from_text(league.lower()) if league else SPORT_LOGOS["football"]
-
-        time_str, date_str = "--:--", "--/--"
-        start = match.get("start_date") or ""
-        if start:
-            try:
-                if "+" not in start and not start.endswith("Z"):
-                    start += "+00:00"
-                dt       = datetime.fromisoformat(start)
-                dt_vn    = dt.astimezone(VN_TZ)
-                time_str = dt_vn.strftime("%H:%M")
-                date_str = dt_vn.strftime("%d/%m")
-            except Exception:
-                pass
-
-        prefix  = "🔴 LIVE | " if match.get("is_live") else ""
-        display = f"{prefix}{time_str} - {date_str} | {home} VS {away}"
-        if league:
-            display += f" ({league})"
-        display += f" | {blv_name}"
-
-        vi_cached = _tieulam_stream_cache.get(match_id) or {}
-        is_live_vi = bool(
-            match_id
-            and (hd1 or hd2 or hd3)
-            and _tieulam_needs_proxy(hd1 or hd2 or hd3 or primary)
-            and (match.get("is_live") or match.get("live_integrated"))
-        )
-        vi_probed = vi_cached.get("probed_ok", False)
-        backup = fallback if fallback and not _tieulam_needs_proxy(fallback) else ""
-        vi_url = hd1 or hd2 or hd3 or primary
-
-        if is_live_vi:
-            # 1) Pipe header — TiviMate/VLC từ IP thiết bị user (bypass nếu IP VN/residential)
-            _append_tieulam_entry(
-                lines, logo, f"{display} [HD1 Việt]",
-                _tieulam_pipe_url(vi_url), use_vlcopt=True,
-            )
-            # 2) Render proxy — hoạt động khi có VN relay/proxy (server fetch được HD1)
-            if vi_probed or TIEULAM_VN_RELAY_URL or TIEULAM_HTTP_PROXY:
-                _append_tieulam_entry(
-                    lines, logo, f"{display} [HD1 Server]",
-                    _tieulam_public_url(f"/tieulam-stream/{match_id}.m3u8"),
-                    use_vlcopt=False,
-                )
-            # 3) CF Worker — thường vẫn 403 HD1, fallback foreign
-            if TIEULAM_CF_STREAM_RELAY:
-                _append_tieulam_entry(
-                    lines, logo, f"{display} [HD1 CF]",
-                    _tieulam_cf_match_url(match_id), use_vlcopt=False,
-                )
-            # 4) Giọng ngoại — luôn hoạt động
-            if backup:
-                _append_tieulam_entry(
-                    lines, logo, f"{display} [Giọng ngoài]",
-                    backup, use_vlcopt=False,
-                )
-        else:
-            stream_url = _tieulam_pipe_url(primary)
-            use_vlcopt = bool(stream_url and "asynccdn.com" in stream_url)
-            _append_tieulam_entry(lines, logo, display, stream_url, use_vlcopt=use_vlcopt)
-            if backup:
-                fb_vlcopt = _tieulam_needs_proxy(backup)
-                _append_tieulam_entry(
-                    lines, logo, f"{display} [Dự phòng]", backup, use_vlcopt=fb_vlcopt,
-                )
-
-    return lines
-
-# ══════════════════════════════════════════════════════════════════════════════
 #  Dekiki — static GitHub M3U fetch + parse
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -1199,11 +723,6 @@ def _refresh_all_playlists():
     def fetch_vc():
         return _build_vongcam_lines(_fetch_vongcam_matches())
 
-    def fetch_tl():
-        matches  = _fetch_tieulam_for_relay()
-        api_base = _tieulam_bongda_cache["url"]
-        return _build_tieulam_lines(matches, api_base)
-
     def fetch_dekiki():
         return _fetch_dekiki_lines()
 
@@ -1213,7 +732,6 @@ def _refresh_all_playlists():
             ex.submit(fetch_hq):     "hoiquan",
             ex.submit(fetch_kda):    "khandaia",
             ex.submit(fetch_vc):     "vongcam",
-            ex.submit(fetch_tl):     "tieulam",
             ex.submit(fetch_dekiki): "dekiki",
         }
         results = {}
@@ -1229,7 +747,6 @@ def _refresh_all_playlists():
     hq_lines     = results.get("hoiquan",  [])
     kda_lines    = results.get("khandaia", [])
     vc_lines     = results.get("vongcam",  [])
-    tl_lines     = results.get("tieulam",  [])
     dekiki_lines = results.get("dekiki",   [])
 
     err_str = "; ".join(errors)
@@ -1245,11 +762,10 @@ def _refresh_all_playlists():
     _store("hoiquan",  epg_header + "\n" + "\n".join(hq_lines))
     _store("khandaia", epg_header + "\n" + "\n".join(kda_lines))
     _store("vongcam",  epg_header + "\n" + "\n".join(vc_lines))
-    _store("tieulam",  epg_header + "\n" + "\n".join(tl_lines))
     _store("dekiki",   epg_header + "\n" + "\n".join(dekiki_lines))
 
     # Combined — live sports first, then static TV channels
-    all_lines = cola_lines + hq_lines + kda_lines + vc_lines + tl_lines + dekiki_lines
+    all_lines = cola_lines + hq_lines + kda_lines + vc_lines + dekiki_lines
     combined_text = epg_header + "\n" + "\n".join(all_lines)
     if err_str:
         combined_text += f"\n# Errors: {err_str}"
@@ -1260,7 +776,6 @@ def _refresh_all_playlists():
         "hoiquan":      count(hq_lines),
         "khandaia":     count(kda_lines),
         "vongcam":      count(vc_lines),
-        "tieulam":      count(tl_lines),
         "dekiki":       count(dekiki_lines),
         "refreshed_at": time.time(),
         "last_error":   err_str,
@@ -1279,70 +794,6 @@ def _get_entry(key: str):
     entry = _playlist_cache[key]
     with entry["lock"]:
         return dict(entry)
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  TieuLam Relay — Bongda/Render làm proxy cho GitHub Actions
-# ══════════════════════════════════════════════════════════════════════════════
-
-def _get_tieulam_api_bongda() -> str:
-    now = time.time()
-    if now - _tieulam_bongda_cache["discovered_at"] < API_DISCOVERY_TTL:
-        return _tieulam_bongda_cache["url"]
-    sc = cloudscraper.create_scraper()
-    for front in [TIEULAM_FRONTEND_URL, "https://sv1.tieulam1.live"]:
-        try:
-            html = sc.get(front, timeout=8).text
-            for js_path in re.findall(r'src="(/assets/[^"]+\.js)"', html)[:4]:
-                try:
-                    js = sc.get(front + js_path, timeout=8).text
-                    m = re.search(r'create\(\{baseURL:"(https://[^"]{10,80})"\}', js)
-                    if m and not re.search(r'cdn|live|pull|stream|secufun|asynccdn', m.group(1)):
-                        _tieulam_bongda_cache["url"] = m.group(1).rstrip("/")
-                        _tieulam_bongda_cache["discovered_at"] = now
-                        return _tieulam_bongda_cache["url"]
-                    m2 = re.search(r'"(https://api\.tlap[a-z0-9]{6,12}\.(?:com|xyz))"', js)
-                    if m2:
-                        _tieulam_bongda_cache["url"] = m2.group(1)
-                        _tieulam_bongda_cache["discovered_at"] = now
-                        return _tieulam_bongda_cache["url"]
-                except Exception:
-                    pass
-        except Exception:
-            pass
-    return _tieulam_bongda_cache["url"]
-
-def _fetch_tieulam_for_relay() -> list:
-    """Fetch TieuLam matches via cloudscraper — dùng IP của Render."""
-    now_ts = time.time()
-    if _tieulam_relay_cache["data"] is not None and now_ts - _tieulam_relay_cache["ts"] < 180:
-        return _tieulam_relay_cache["data"]
-    api_base = _get_tieulam_api_bongda()
-    now_dt   = datetime.now(tz=timezone.utc)
-    cutoff   = (now_dt - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%S")
-    cutoff_e = (now_dt + timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%S")
-    payload  = {
-        "queries": [
-            {"field": "start_date", "type": "gte",       "value": cutoff},
-            {"field": "start_date", "type": "lte",       "value": cutoff_e},
-            {"field": "blv",        "type": "not_equal", "value": None},
-            {"field": "blv",        "type": "not_equal", "value": ""},
-        ],
-        "query_and": True, "limit": 50, "page": 1, "order_asc": "start_date",
-    }
-    hdrs = {
-        "Content-Type":    "application/json",
-        "Accept":          "application/json, text/plain, */*",
-        "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Origin":          TIEULAM_FRONTEND_URL,
-        "Referer":         TIEULAM_FRONTEND_URL + "/",
-    }
-    sc   = cloudscraper.create_scraper()
-    resp = sc.post(f"{api_base}/matches/graph", json=payload, headers=hdrs, timeout=20)
-    resp.raise_for_status()
-    data = resp.json().get("data") or []
-    _tieulam_relay_cache["data"] = data
-    _tieulam_relay_cache["ts"]   = now_ts
-    return data
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Flask routes
@@ -1399,10 +850,6 @@ def khandaia_m3u():
 def vongcam_m3u():
     return _m3u_response("vongcam", "vongcam.m3u")
 
-@app.route("/tieulam.m3u")
-def tieulam_m3u():
-    return _m3u_response("tieulam", "tieulam.m3u")
-
 @app.route("/dekiki.m3u")
 def dekiki_m3u():
     return _m3u_response("dekiki", "dekiki.m3u")
@@ -1434,118 +881,6 @@ def status_json():
             "dekiki_tv":  {"api": "github-static",                "status": "ok" if _last_counts.get("dekiki",0)  > 0 else "empty"},
         },
     })
-
-def _tieulam_allowed_upstream(url: str) -> bool:
-    from urllib.parse import urlparse
-    host = urlparse(url).netloc.lower()
-    return any(h in host for h in (
-        "asynccdn.com", "lilive1.eu.cc", "lilive3.eu.cc", "secufun.xyz", "b-cdn.net",
-    ))
-
-@app.route("/tieulam-stream/<match_id>.m3u8")
-def tieulam_stream_playlist(match_id: str):
-    """Proxy playlist BLV Việt — failover HD1/HD2/HD3 qua cloudscraper."""
-    code, body, ct, upstream = _tieulam_fetch_vi_playlist(match_id)
-    if code != 200 or not body:
-        foreign = _tieulam_foreign_fallback(match_id)
-        if foreign:
-            return Response("", status=302, headers={"Location": foreign})
-        return Response(f"Upstream HTTP {code}", status=502, mimetype="text/plain")
-
-    if _tieulam_is_playlist(body) or upstream.endswith(".m3u8") or "mpegurl" in ct:
-        text = body.decode("utf-8", errors="replace")
-        rewritten = _tieulam_rewrite_m3u8(text, upstream, _request_root())
-        return Response(rewritten, mimetype="application/vnd.apple.mpegurl",
-                        headers={"Cache-Control": "no-cache"})
-
-    mt = ct or "application/octet-stream"
-    return Response(body, mimetype=mt, headers={"Cache-Control": "no-cache"})
-
-@app.route("/tieulam-stream/proxy")
-def tieulam_stream_proxy():
-    """Proxy segment / sub-playlist từ CDN upstream."""
-    url = (request.args.get("u") or "").strip()
-    if not url.startswith(("http://", "https://")) or not _tieulam_allowed_upstream(url):
-        return Response("Bad URL", status=400, mimetype="text/plain")
-
-    code, body, ct = _tieulam_fetch_upstream(url)
-    if code != 200 or not body:
-        return Response(f"Upstream HTTP {code}", status=502, mimetype="text/plain")
-
-    if b"#EXTM3U" in body or url.endswith(".m3u8") or "mpegurl" in ct:
-        text = body.decode("utf-8", errors="replace")
-        rewritten = _tieulam_rewrite_m3u8(text, url, _request_root())
-        return Response(rewritten, mimetype="application/vnd.apple.mpegurl",
-                        headers={"Cache-Control": "no-cache"})
-
-    if url.endswith(".ts"):
-        mt = "video/mp2t"
-    elif url.endswith(".key"):
-        mt = "application/octet-stream"
-    else:
-        mt = ct or "application/octet-stream"
-    return Response(body, mimetype=mt, headers={"Cache-Control": "no-cache"})
-
-@app.route("/tieulam-stream-test/<match_id>")
-def tieulam_stream_test(match_id: str):
-    """Diagnostic: probe HD1/HD2/HD3 và test proxy."""
-    from flask import jsonify
-    api_base = _get_tieulam_api_bongda()
-    hd1, hd2, hd3, src = _fetch_tieulam_live_urls(api_base, match_id)
-    best, probed = _tieulam_probe_best_vi(hd1, hd2, hd3)
-    code, body, ct, used = _tieulam_fetch_vi_playlist(match_id)
-    preview = body[:80].decode("utf-8", errors="replace") if body else ""
-    cf_ok = _tieulam_probe_cf_match(match_id) if TIEULAM_CF_STREAM_RELAY else False
-    pipe_hd1 = _tieulam_pipe_url(hd1 or hd2 or hd3 or best or "")
-    return jsonify({
-        "ok": code == 200 or cf_ok,
-        "match_id": match_id,
-        "hd1": hd1, "hd2": hd2, "hd3": hd3,
-        "probed_best": best,
-        "probed_ok": probed,
-        "cf_relay": TIEULAM_CF_STREAM_RELAY or None,
-        "cf_ok": cf_ok,
-        "cf_url": _tieulam_cf_match_url(match_id) if TIEULAM_CF_STREAM_RELAY else "",
-        "pipe_hd1_url": pipe_hd1,
-        "used_upstream": used,
-        "http_status": code,
-        "content_type": ct,
-        "preview": preview,
-        "proxy_url": _tieulam_public_url(f"/tieulam-stream/{match_id}.m3u8"),
-        "public_base_url": PUBLIC_BASE_URL or _request_root(),
-        "foreign_fallback": _tieulam_foreign_fallback(match_id) or src,
-        "plan": {
-            "hd1_viet": "M3U [HD1 Việt] — pipe TiviMate, IP thiết bị user",
-            "hd1_server": "M3U [HD1 Server] — cần TIEULAM_VN_RELAY_URL hoặc TIEULAM_HTTP_PROXY",
-            "hd1_cf": "M3U [HD1 CF] — CF edge (asynccdn thường vẫn 403)",
-            "foreign": "M3U [Giọng ngoài] — lilive, luôn hoạt động",
-        },
-        "vn_relay": TIEULAM_VN_RELAY_URL or None,
-        "http_proxy_set": bool(TIEULAM_HTTP_PROXY),
-    })
-
-@app.route("/tieulam-relay")
-def tieulam_relay_route():
-    """Relay TieuLam API → GitHub Actions vượt block 403.
-    Auth: X-Relay-Token (nếu RELAY_SECRET được set).
-    """
-    from flask import jsonify
-    if RELAY_SECRET:
-        if request.headers.get("X-Relay-Token", "") != RELAY_SECRET:
-            return jsonify({"error": "Unauthorized"}), 401
-    try:
-        data     = _fetch_tieulam_for_relay()
-        api_base = _tieulam_bongda_cache["url"]
-        return jsonify({"data": data, "count": len(data),
-                        "api_base": api_base, "relay": "bongda-render"})
-    except Exception as e:
-        if _tieulam_relay_cache["data"] is not None:
-            return jsonify({"data":    _tieulam_relay_cache["data"],
-                            "count":   len(_tieulam_relay_cache["data"]),
-                            "api_base": _tieulam_bongda_cache["url"],
-                            "relay":   "bongda-render", "cached": True,
-                            "stale":   True, "error": str(e)})
-        return jsonify({"error": str(e), "data": []}), 502
 
 @app.route("/ping")
 def ping():
@@ -1580,7 +915,6 @@ def index():
         "<li><a href='/hoiquan.m3u'>/hoiquan.m3u</a> — Hội Quán TV only</li>"
         "<li><a href='/khandaia.m3u'>/khandaia.m3u</a> — Khán Đài A only</li>"
         "<li><a href='/vongcam.m3u'>/vongcam.m3u</a> — Vòng Cấm TV only</li>"
-        "<li><a href='/tieulam.m3u'>/tieulam.m3u</a> — Tiêu Lâm TV ([HD1 Việt] pipe + [HD1 CF] + [Giọng ngoài])</li>"
         "<li><a href='/dekiki.m3u'>/dekiki.m3u</a> — Kênh TV Việt (dekiki)</li>"
         "</ul>"
         "<h3>📊 Trạng thái</h3>"
