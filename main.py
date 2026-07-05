@@ -42,6 +42,11 @@ TIEULAM_CF_STREAM_RELAY = os.environ.get(
     "TIEULAM_CF_STREAM_RELAY",
     "https://tieulam-relay.bacbenny95.workers.dev",
 ).rstrip("/")
+# VN relay — VPS/máy nhà IP Việt Nam (cách duy nhất bypass chặn IP datacenter)
+TIEULAM_VN_RELAY_URL    = os.environ.get("TIEULAM_VN_RELAY_URL", "").rstrip("/")
+TIEULAM_VN_RELAY_SECRET = os.environ.get("TIEULAM_VN_RELAY_SECRET", "")
+# HTTP/SOCKS5 proxy IP Việt Nam (vd: socks5://user:pass@host:port)
+TIEULAM_HTTP_PROXY      = os.environ.get("TIEULAM_HTTP_PROXY", "").strip()
 
 # Referrer cho CDN asynccdn — khớp TIEULAM_FRONTEND (render.yaml: sv2.tieulam.info).
 TIEULAM_UA          = (
@@ -680,12 +685,32 @@ def _tieulam_cdn_headers() -> dict:
 def _tieulam_needs_proxy(url: str) -> bool:
     return bool(url and "asynccdn.com" in url)
 
+def _tieulam_request_proxies() -> dict[str, str]:
+    if not TIEULAM_HTTP_PROXY:
+        return {}
+    return {"http": TIEULAM_HTTP_PROXY, "https": TIEULAM_HTTP_PROXY}
+
 def _tieulam_scraper():
     sc = getattr(_tieulam_scraper_local, "sc", None)
     if sc is None:
         sc = cloudscraper.create_scraper()
         _tieulam_scraper_local.sc = sc
     return sc
+
+def _tieulam_fetch_via_vn_relay(url: str) -> tuple[int, bytes, str]:
+    """Fetch qua relay chạy trên VPS/máy IP Việt Nam."""
+    if not TIEULAM_VN_RELAY_URL or not _tieulam_needs_proxy(url):
+        return 0, b"", ""
+    try:
+        relay = f"{TIEULAM_VN_RELAY_URL}/fetch?u={quote(url, safe='')}"
+        hdrs  = {"User-Agent": TIEULAM_UA}
+        if TIEULAM_VN_RELAY_SECRET:
+            hdrs["X-Relay-Token"] = TIEULAM_VN_RELAY_SECRET
+        r = requests.get(relay, headers=hdrs, timeout=20)
+        ct = (r.headers.get("Content-Type") or "").split(";")[0].strip()
+        return r.status_code, r.content, ct
+    except Exception:
+        return 0, b"", ""
 
 def _tieulam_vi_candidates(hd1: str, hd2: str, hd3: str) -> list[str]:
     out: list[str] = []
@@ -714,16 +739,29 @@ def _tieulam_cf_proxy_url(raw_url: str) -> str:
     return f"{TIEULAM_CF_STREAM_RELAY}/stream/proxy?u={quote(raw_url, safe='')}"
 
 def _tieulam_fetch_upstream(url: str) -> tuple[int, bytes, str]:
-    """Fetch CDN qua cloudscraper (IP Render); fallback CF relay nếu được cấu hình."""
+    """
+    Fetch CDN asynccdn — thứ tự bypass:
+    1) HTTP proxy IP VN (TIEULAM_HTTP_PROXY)
+    2) VN relay VPS (TIEULAM_VN_RELAY_URL)
+    3) Render/CF trực tiếp (thường 403)
+    4) CF stream relay
+    """
     code, body, ct = 0, b"", ""
+    proxies = _tieulam_request_proxies() or None
     try:
-        r  = _tieulam_scraper().get(url, headers=_tieulam_cdn_headers(), timeout=15)
+        r  = _tieulam_scraper().get(
+            url, headers=_tieulam_cdn_headers(), timeout=15, proxies=proxies,
+        )
         ct = (r.headers.get("Content-Type") or "").split(";")[0].strip()
         code, body = r.status_code, r.content
         if code == 200 and body:
             return code, body, ct
     except Exception:
         pass
+    if _tieulam_needs_proxy(url):
+        vn_code, vn_body, vn_ct = _tieulam_fetch_via_vn_relay(url)
+        if vn_code == 200 and vn_body:
+            return vn_code, vn_body, vn_ct
     if TIEULAM_CF_STREAM_RELAY and _tieulam_needs_proxy(url):
         try:
             r = requests.get(
@@ -996,23 +1034,23 @@ def _build_tieulam_lines(matches: list, api_base: str = "") -> list:
         vi_url = hd1 or hd2 or hd3 or primary
 
         if is_live_vi:
-            # 1) Pipe header — TiviMate/VLC gửi Referer từ IP thiết bị user (thường bypass 403)
+            # 1) Pipe header — TiviMate/VLC từ IP thiết bị user (bypass nếu IP VN/residential)
             _append_tieulam_entry(
                 lines, logo, f"{display} [HD1 Việt]",
                 _tieulam_pipe_url(vi_url), use_vlcopt=True,
             )
-            # 2) CF Worker — fetch asynccdn từ edge Cloudflare (sau khi deploy workers/tieulam-relay.js)
+            # 2) Render proxy — hoạt động khi có VN relay/proxy (server fetch được HD1)
+            if vi_probed or TIEULAM_VN_RELAY_URL or TIEULAM_HTTP_PROXY:
+                _append_tieulam_entry(
+                    lines, logo, f"{display} [HD1 Server]",
+                    _tieulam_public_url(f"/tieulam-stream/{match_id}.m3u8"),
+                    use_vlcopt=False,
+                )
+            # 3) CF Worker — thường vẫn 403 HD1, fallback foreign
             if TIEULAM_CF_STREAM_RELAY:
                 _append_tieulam_entry(
                     lines, logo, f"{display} [HD1 CF]",
                     _tieulam_cf_match_url(match_id), use_vlcopt=False,
-                )
-            # 3) Render proxy — chỉ khi probe OK (Render fetch được trực tiếp)
-            if vi_probed:
-                _append_tieulam_entry(
-                    lines, logo, display,
-                    _tieulam_public_url(f"/tieulam-stream/{match_id}.m3u8"),
-                    use_vlcopt=False,
                 )
             # 4) Giọng ngoại — luôn hoạt động
             if backup:
@@ -1477,10 +1515,13 @@ def tieulam_stream_test(match_id: str):
         "public_base_url": PUBLIC_BASE_URL or _request_root(),
         "foreign_fallback": _tieulam_foreign_fallback(match_id) or src,
         "plan": {
-            "hd1_viet": "M3U entry [HD1 Việt] — pipe header, dùng TiviMate/VLC",
-            "hd1_cf": "M3U entry [HD1 CF] — cần deploy workers/tieulam-relay.js (GitHub Actions)",
-            "foreign": "M3U entry [Giọng ngoài] — lilive, luôn hoạt động",
+            "hd1_viet": "M3U [HD1 Việt] — pipe TiviMate, IP thiết bị user",
+            "hd1_server": "M3U [HD1 Server] — cần TIEULAM_VN_RELAY_URL hoặc TIEULAM_HTTP_PROXY",
+            "hd1_cf": "M3U [HD1 CF] — CF edge (asynccdn thường vẫn 403)",
+            "foreign": "M3U [Giọng ngoài] — lilive, luôn hoạt động",
         },
+        "vn_relay": TIEULAM_VN_RELAY_URL or None,
+        "http_proxy_set": bool(TIEULAM_HTTP_PROXY),
     })
 
 @app.route("/tieulam-relay")
