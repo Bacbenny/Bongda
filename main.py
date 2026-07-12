@@ -640,14 +640,447 @@ def _parse_tinhlagi_tieulam() -> list:
     return channels
 
 
+_TIEULAM_TITLE_RE = re.compile(
+    r'^(?P<time>\d{1,2}:\d{2})\s+(?P<date>\d{1,2}/\d{1,2})\s+'
+    r'(?P<home>.+?)\s+vs\s+(?P<away>.+?)\s*'
+    r'(?:\((?P<blv>[^)]*)\))?\s*(?:\[geo\])?
+
+
+def _fetch_tieulam_lines() -> list:
+    return _build_tieulam_lines_from_channels(_parse_tinhlagi_tieulam())
+
+
+def _fetch_dekiki_lines() -> list:
+    """Download the GitHub-hosted M3U, strip its header, return raw lines."""
+    resp = requests.get(DEKIKI_M3U_URL, timeout=20)
+    resp.raise_for_status()
+    lines = []
+    for line in resp.text.splitlines():
+        stripped = line.rstrip()
+        if not stripped or stripped.startswith("#EXTM3U"):
+            continue
+        lines.append(stripped)
+    return lines
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Shared fixture helpers  (Hội Quán TV + Khán Đài A use same schema)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _fixture_is_active(fixture: dict) -> bool:
+    status = str(fixture.get("status") or "").lower().strip()
+    if status in FINISHED_STATUS_STRINGS:
+        return False
+    if fixture.get("isFinished") or fixture.get("isEnd"):
+        return False
+    is_live        = bool(fixture.get("isLive"))
+    start_time_str = fixture.get("startTime", "")
+    if start_time_str and not is_live:
+        try:
+            dt      = datetime.fromisoformat(start_time_str.replace("Z", "+00:00"))
+            elapsed = time.time() - dt.timestamp()
+            if elapsed > MATCH_MAX_AGE_SECONDS:
+                return False
+            if status == "active" and elapsed > 5400:
+                return False
+        except Exception:
+            pass
+    return True
+
+def _pick_best_stream(streams: list) -> str:
+    for quality in ("fhd", "hd", "sd"):
+        for s in streams:
+            if s.get("name", "").lower() == quality:
+                url = s.get("sourceUrl", "")
+                if url:
+                    return url
+    for s in streams:
+        url = s.get("sourceUrl", "")
+        if url:
+            return url
+    return ""
+
+def _build_fixture_lines(fixtures: list, group_title: str) -> list:
+    try:
+        fixtures = sorted(fixtures, key=lambda f: f.get("startTime") or "")
+    except Exception:
+        pass
+    lines = []
+    for fixture in fixtures:
+        if not _fixture_is_active(fixture):
+            continue
+        logo      = _hq_kda_logo(fixture)
+        start_str = fixture.get("startTime", "")
+        home      = fixture.get("homeTeam", {}).get("name", "Home").strip()
+        away      = fixture.get("awayTeam", {}).get("name", "Away").strip()
+        league    = fixture.get("league", {}).get("name", "")
+        try:
+            dt      = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
+            dt_vn   = dt.astimezone(VN_TZ)
+            time_str = dt_vn.strftime("%H:%M")
+            date_str = dt_vn.strftime("%d/%m")
+        except Exception:
+            time_str = "--:--"
+            date_str = "--/--"
+        for entry in fixture.get("fixtureCommentators", []):
+            commentator_obj = entry.get("commentator", {})
+            name = (commentator_obj.get("nickname") or commentator_obj.get("name") or "").strip()
+            stream_url = _pick_best_stream(commentator_obj.get("streams", []))
+            if not stream_url:
+                continue
+            display = f"{time_str} - {date_str} | {home} VS {away} ({league}) | {name}"
+            lines.append(f'#EXTINF:-1 tvg-logo="{logo}" group-title="{group_title}",{display}')
+            _referer_map = {
+                "Hội Quán TV": HOIQUAN_FRONTEND_URL.rstrip("/") + "/",
+                "Khán Đài A":  KHANDAIA_FRONTEND_URL.rstrip("/") + "/",
+            }
+            _ref = _referer_map.get(group_title, "")
+            _final_url = stream_url + (f"|Referer={_ref}&User-Agent=Mozilla/5.0" if _ref and "|" not in stream_url else "")
+            lines.append(_final_url)
+    return lines
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Cache helpers — build compressed + ETag
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _pack(text: str) -> dict:
+    raw  = text.encode("utf-8")
+    gz   = gzip.compress(raw, compresslevel=6)
+    etag = '"' + hashlib.md5(raw).hexdigest() + '"'
+    return {"content": raw, "gz": gz, "etag": etag, "built_at": time.time()}
+
+def _store(key: str, text: str):
+    packed = _pack(text)
+    entry  = _playlist_cache[key]
+    with entry["lock"]:
+        entry.update(packed)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Background pre-fetch (parallel, 5 sources)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _refresh_all_playlists():
+    # Tự động follow redirect để cập nhật domain thực tế
+    _resolve_all_frontends()
+    errors = []
+
+    def fetch_tieulam():
+        return _fetch_tieulam_lines()
+
+    def fetch_cola():
+        return _build_colatv_lines(_fetch_colatv_matches())
+
+    def fetch_hq():
+        return _build_fixture_lines(_fetch_hoiquan_fixtures(), "Hội Quán TV")
+
+    def fetch_kda():
+        return _build_fixture_lines(_fetch_khandaia_fixtures(), "Khán Đài A")
+
+    def fetch_vc():
+        return _build_vongcam_lines(_fetch_vongcam_matches())
+
+    def fetch_dekiki():
+        return _fetch_dekiki_lines()
+
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        futures = {
+            ex.submit(fetch_tieulam): "tieulam",
+            ex.submit(fetch_cola):    "cola",
+            ex.submit(fetch_hq):      "hoiquan",
+            ex.submit(fetch_kda):     "khandaia",
+            ex.submit(fetch_vc):      "vongcam",
+            ex.submit(fetch_dekiki):  "dekiki",
+        }
+        results = {}
+        for fut in as_completed(futures):
+            key = futures[fut]
+            try:
+                results[key] = fut.result()
+            except Exception as e:
+                results[key] = []
+                errors.append(f"{key}: {e}")
+
+    tieulam_lines = results.get("tieulam",  [])
+    cola_lines    = results.get("cola",     [])
+    hq_lines      = results.get("hoiquan",  [])
+    kda_lines     = results.get("khandaia", [])
+    vc_lines      = results.get("vongcam",  [])
+    dekiki_lines  = results.get("dekiki",   [])
+
+    err_str = "; ".join(errors)
+
+    def count(lines):
+        return sum(1 for l in lines if l.startswith("#EXTINF"))
+
+    # EPG header — shared across all playlists
+    epg_header = f'#EXTM3U url-tvg="{EPG_URL}" x-tvg-url="{EPG_URL}"'
+
+    # Build + store individual playlists
+    _store("tieulam",  epg_header + "\n" + "\n".join(tieulam_lines))
+    _store("cola",     epg_header + "\n" + "\n".join(cola_lines))
+    _store("hoiquan",  epg_header + "\n" + "\n".join(hq_lines))
+    _store("khandaia", epg_header + "\n" + "\n".join(kda_lines))
+    _store("vongcam",  epg_header + "\n" + "\n".join(vc_lines))
+    _store("dekiki",   epg_header + "\n" + "\n".join(dekiki_lines))
+
+    # Combined — Tiếu Lâm TV + live sports first, then static TV channels
+    all_lines = tieulam_lines + cola_lines + hq_lines + kda_lines + vc_lines + dekiki_lines
+    combined_text = epg_header + "\n" + "\n".join(all_lines)
+    if err_str:
+        combined_text += f"\n# Errors: {err_str}"
+    _store("combined", combined_text)
+
+    _last_counts.update({
+        "tieulam":      count(tieulam_lines),
+        "cola":         count(cola_lines),
+        "hoiquan":      count(hq_lines),
+        "khandaia":     count(kda_lines),
+        "vongcam":      count(vc_lines),
+        "dekiki":       count(dekiki_lines),
+        "refreshed_at": time.time(),
+        "last_error":   err_str,
+    })
+
+def _prefetch_loop():
+    time.sleep(3)
+    while True:
+        try:
+            _refresh_all_playlists()
+        except Exception:
+            pass
+        time.sleep(PREFETCH_INTERVAL)
+
+def _get_entry(key: str):
+    entry = _playlist_cache[key]
+    with entry["lock"]:
+        return dict(entry)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Flask routes
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _m3u_response(key: str, filename: str) -> Response:
+    entry = _get_entry(key)
+
+    # First request — build synchronously if cache is cold
+    if entry["content"] is None:
+        try:
+            _refresh_all_playlists()
+            entry = _get_entry(key)
+        except Exception as e:
+            return Response(f"Error: {e}", status=500, mimetype="text/plain")
+
+    # ── ETag / conditional GET ────────────────────────────────────────────────
+    etag = entry["etag"]
+    if request.headers.get("If-None-Match") == etag:
+        return Response(status=304)
+
+    # ── Choose gzip or plain ──────────────────────────────────────────────────
+    accept_enc = request.headers.get("Accept-Encoding", "")
+    use_gzip   = "gzip" in accept_enc and entry["gz"] is not None
+
+    body = entry["gz"] if use_gzip else entry["content"]
+
+    resp = Response(body, mimetype="application/x-mpegurl")
+    resp.headers["ETag"]                = etag
+    resp.headers["Cache-Control"]       = f"public, max-age={PREFETCH_INTERVAL}"
+    resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    resp.headers["Vary"]                = "Accept-Encoding"
+    if use_gzip:
+        resp.headers["Content-Encoding"] = "gzip"
+    return resp
+
+@app.route("/live.m3u")
+def live_m3u():
+    return _m3u_response("combined", "live.m3u")
+
+@app.route("/tieulam.m3u")
+def tieulam_m3u():
+    return _m3u_response("tieulam", "tieulam.m3u")
+
+@app.route("/cola.m3u")
+def cola_m3u():
+    return _m3u_response("cola", "cola.m3u")
+
+@app.route("/hoiquan.m3u")
+def hoiquan_m3u():
+    return _m3u_response("hoiquan", "hoiquan.m3u")
+
+@app.route("/khandaia.m3u")
+def khandaia_m3u():
+    return _m3u_response("khandaia", "khandaia.m3u")
+
+@app.route("/vongcam.m3u")
+def vongcam_m3u():
+    return _m3u_response("vongcam", "vongcam.m3u")
+
+@app.route("/dekiki.m3u")
+def dekiki_m3u():
+    return _m3u_response("dekiki", "dekiki.m3u")
+
+@app.route("/status.json")
+def status_json():
+    from flask import jsonify
+    ra    = _last_counts.get("refreshed_at", 0)
+    ra_vn = datetime.fromtimestamp(ra, tz=VN_TZ).strftime("%H:%M:%S %d/%m/%Y") if ra else None
+    next_s = max(int(PREFETCH_INTERVAL - (time.time() - ra)), 0) if ra else None
+    return jsonify({
+        "ok":           True,
+        "refreshed_at": ra_vn,
+        "next_refresh_in_seconds": next_s,
+        "last_error":   _last_counts.get("last_error", ""),
+        "channels": {
+            "total":    sum(_last_counts.get(k, 0) for k in ("tieulam","cola","hoiquan","khandaia","vongcam","dekiki")),
+            "tieulam_tv":   _last_counts.get("tieulam",  0),
+            "cola_tv":      _last_counts.get("cola",     0),
+            "hoiquan_tv":   _last_counts.get("hoiquan",  0),
+            "khandai_a":    _last_counts.get("khandaia", 0),
+            "vongcam_tv":   _last_counts.get("vongcam",  0),
+            "dekiki_tv":    _last_counts.get("dekiki",   0),
+        },
+        "sources": {
+            "tieulam_tv": {"api": TINHLAGI_M3U_URL,               "status": "ok" if _last_counts.get("tieulam",0) > 0 else "empty"},
+            "cola_tv":    {"api": _colatv_api_cache.get("url"),   "status": "ok" if _last_counts.get("cola",0)    > 0 else "empty"},
+            "hoiquan_tv": {"api": _hoiquan_api_cache.get("url"),  "status": "ok" if _last_counts.get("hoiquan",0) > 0 else "empty"},
+            "khandai_a":  {"api": _khandaia_api_cache.get("url"), "status": "ok" if _last_counts.get("khandaia",0)> 0 else "empty"},
+            "vongcam_tv": {"api": _vongcam_api_cache.get("url"), "token": _vongcam_token_cache.get("token"), "status": "ok" if _last_counts.get("vongcam",0) > 0 else "empty"},
+            "dekiki_tv":  {"api": "github-static",                "status": "ok" if _last_counts.get("dekiki",0)  > 0 else "empty"},
+        },
+    })
+
+@app.route("/ping")
+def ping():
+    return Response("OK", mimetype="text/plain")
+
+@app.route("/")
+def index():
+    ra = _last_counts.get("refreshed_at", 0)
+    if ra:
+        dt_str   = datetime.fromtimestamp(ra, tz=VN_TZ).strftime("%H:%M:%S %d/%m/%Y")
+        next_s   = max(int(PREFETCH_INTERVAL - (time.time() - ra)), 0)
+        next_str = f"{next_s}s"
+    else:
+        dt_str   = "chưa có dữ liệu"
+        next_str = "đang khởi động..."
+
+    err      = _last_counts.get("last_error", "")
+    err_html = f'<p style="color:red">⚠️ {err}</p>' if err else ""
+
+    tieulam_count = _last_counts.get("tieulam", 0)
+    cola_count    = _last_counts.get("cola",    0)
+    hq_count      = _last_counts.get("hoiquan", 0)
+    kda_count     = _last_counts.get("khandaia",0)
+    vc_count      = _last_counts.get("vongcam", 0)
+    dekiki_count  = _last_counts.get("dekiki",  0)
+    total         = tieulam_count + cola_count + hq_count + kda_count + vc_count + dekiki_count
+
+    return (
+        "<h2>🎬 IPTV M3U Server</h2>"
+        "<h3>📋 Playlist</h3><ul>"
+        "<li><a href='/live.m3u'>/live.m3u</a> — Tất cả nguồn gộp lại</li>"
+        "<li><a href='/tieulam.m3u'>/tieulam.m3u</a> — TieuLam TV only</li>"
+        "<li><a href='/cola.m3u'>/cola.m3u</a> — Cola TV only</li>"
+        "<li><a href='/hoiquan.m3u'>/hoiquan.m3u</a> — Hội Quán TV only</li>"
+        "<li><a href='/khandaia.m3u'>/khandaia.m3u</a> — Khán Đài A only</li>"
+        "<li><a href='/vongcam.m3u'>/vongcam.m3u</a> — Vòng Cấm TV only</li>"
+        "<li><a href='/dekiki.m3u'>/dekiki.m3u</a> — Kênh TV Việt (dekiki)</li>"
+        "</ul>"
+        "<h3>📊 Trạng thái</h3>"
+        f"<p>📺 Tổng kênh: <strong>{total}</strong>"
+        f" &nbsp;(🏆 Live: {cola_count + hq_count + kda_count + vc_count}"
+        f" | 📡 TV: {tieulam_count + dekiki_count})</p>"
+        f"<p>🕐 Cập nhật lần cuối: <strong>{dt_str}</strong></p>"
+        f"<p>⏳ Cập nhật tiếp theo: <strong>{next_str}</strong></p>"
+        f"<p>🟢 TieuLam TV: <strong>{tieulam_count} kênh</strong>"
+        f"&nbsp;|&nbsp; <code>{TINHLAGI_M3U_URL}</code></p>"
+        f"<p>🟢 Cola TV: <strong>{cola_count} kênh</strong>"
+        f"&nbsp;|&nbsp; <code>{_colatv_api_cache['url']}</code></p>"
+        f"<p>🟢 Hội Quán TV: <strong>{hq_count} kênh</strong>"
+        f"&nbsp;|&nbsp; <code>{_hoiquan_api_cache['url']}</code></p>"
+        f"<p>🟢 Khán Đài A: <strong>{kda_count} kênh</strong>"
+        f"&nbsp;|&nbsp; <code>{_khandaia_api_cache['url']}</code></p>"
+        f"<p>🟢 Vòng Cấm TV: <strong>{vc_count} kênh</strong>"
+        f"&nbsp;|&nbsp; <code>{_vongcam_api_cache['url']}</code>"
+        f"&nbsp;|&nbsp; token: <code>{_vongcam_token_cache['token']}</code></p>"
+        f"<p>📡 Kênh TV (dekiki): <strong>{dekiki_count} kênh</strong></p>"
+        f"<p>📻 EPG: <a href='{EPG_URL}' target='_blank'>{EPG_URL}</a></p>"
+        f"{err_html}"
+        "<h3>⚙️ Tối ưu băng thông</h3><ul>"
+        "<li>Gzip nén tự động (giảm ~70% dữ liệu truyền)</li>"
+        "<li>ETag + HTTP 304 — client có cache không cần tải lại</li>"
+        f"<li>Cache-Control: public, max-age={PREFETCH_INTERVAL}s</li>"
+        "<li>1 worker process + 8 threads — cache dùng chung, không fetch trùng lặp</li>"
+        "<li>5 nguồn fetch song song (ThreadPoolExecutor)</li>"
+        f"<li>Làm mới cache mỗi <strong>{PREFETCH_INTERVAL // 60} phút</strong></li>"
+        "</ul>"
+    )
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Keep-alive self-ping
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _get_ping_url() -> str:
+    domains = os.environ.get("REPLIT_DOMAINS", "")
+    if domains:
+        return f"https://{domains.split(',')[0].strip()}/"
+    render_url = os.environ.get("RENDER_EXTERNAL_URL", "")
+    if render_url:
+        return render_url.rstrip("/") + "/"
+    app_url = os.environ.get("APP_URL", "")
+    if app_url:
+        return app_url.rstrip("/") + "/"
+    return f"http://localhost:{os.environ.get('PORT', 5000)}/"
+
+def _self_ping():
+    url = _get_ping_url()
+    while True:
+        time.sleep(SELF_PING_INTERVAL)
+        try:
+            requests.get(url, timeout=15)
+        except Exception:
+            pass
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Startup
+# ══════════════════════════════════════════════════════════════════════════════
+
+if __name__ == "__main__":
+    threading.Thread(target=_prefetch_loop, daemon=True).start()
+    threading.Thread(target=_self_ping,     daemon=True).start()
+
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
+,
+    re.IGNORECASE,
+)
+
+
+def _format_tieulam_title(title: str) -> str:
+    """Chuẩn hoá tiêu đề Tiếu Lâm TV theo định dạng dùng dấu gạch ngang/gạch đứng
+    giống Khán Đài A / Vòng Cấm TV: 'HH:MM - DD/MM | Home VS Away | BLV ...',
+    đồng thời bỏ thẻ [geo]."""
+    m = _TIEULAM_TITLE_RE.match(title.strip())
+    if not m:
+        return re.sub(r'\s*\[geo\]\s*', '', title, flags=re.IGNORECASE).strip()
+    time_str = m.group("time")
+    date_str = m.group("date")
+    home     = m.group("home").strip()
+    away     = m.group("away").strip()
+    blv      = (m.group("blv") or "").strip()
+    formatted = f"{time_str} - {date_str} | {home} VS {away}"
+    if blv:
+        formatted += f" | {blv}"
+    return formatted
+
+
 def _build_tieulam_lines_from_channels(channels: list) -> list:
     lines = []
     for ch in channels:
-        title = ch.get("title", "")
-        url   = ch.get("url", "")
-        if not title or not url:
+        raw_title = ch.get("title", "")
+        url       = ch.get("url", "")
+        if not raw_title or not url:
             continue
-        logo = _logo_from_text(title)
+        title = _format_tieulam_title(raw_title)
+        logo  = _logo_from_text(title)
         lines.append(f'#EXTINF:-1 tvg-logo="{logo}" group-title="TieuLam TV",{title}')
         referrer = ch.get("referrer", "")
         if referrer:
