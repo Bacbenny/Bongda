@@ -277,14 +277,14 @@ def _build_colatv_lines(matches: dict) -> list:
                     continue
                 commentator = anchor.get("nickName", "").strip()
                 display = f"{time_str} - {date_str} | {home} VS {away} ({competition}) | {commentator}"
-                lines.append(f'#EXTINF:-1 tvg-logo="{logo}" group-title="Cola tv",{display}')
+                lines.append(f'#EXTINF:-1 tvg-logo="{logo}" group-title="CoLa TV",{display}')
                 lines.append(stream_url)
         else:
             stream_url = match.get("videoUrl", "")
             if not stream_url:
                 continue
             display = f"{time_str} - {date_str} | {home} VS {away} ({competition})"
-            lines.append(f'#EXTINF:-1 tvg-logo="{logo}" group-title="Cola tv",{display}')
+            lines.append(f'#EXTINF:-1 tvg-logo="{logo}" group-title="CoLa TV",{display}')
             lines.append(stream_url)
     return lines
 
@@ -647,7 +647,7 @@ def _build_tieulam_lines_from_channels(channels: list) -> list:
         url   = ch.get("url", "")
         if not title or not url:
             continue
-        logo = ch.get("logo", "")
+        logo = _logo_from_text(title)
         lines.append(f'#EXTINF:-1 tvg-logo="{logo}" group-title="TieuLam TV",{title}')
         referrer = ch.get("referrer", "")
         if referrer:
