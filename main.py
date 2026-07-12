@@ -38,6 +38,9 @@ DEKIKI_M3U_URL = os.environ.get(
 )
 EPG_URL = os.environ.get("EPG_URL", "https://vnepg.site/epg.xml")
 
+# ─── Tiếu Lâm TV (live, nguồn tinhlagi.pro) ──────────────────────────────────
+TINHLAGI_M3U_URL = os.environ.get("TINHLAGI_M3U_URL", "https://tinhlagi.pro/s.m3u")
+
 # ─── Shared config ────────────────────────────────────────────────────────────
 VN_TZ                = timezone(timedelta(hours=7))
 SELF_PING_INTERVAL   = 240   # seconds
@@ -130,6 +133,7 @@ def _empty_entry():
 
 _playlist_cache = {
     "combined": _empty_entry(),
+    "tieulam":  _empty_entry(),
     "cola":     _empty_entry(),
     "hoiquan":  _empty_entry(),
     "khandaia": _empty_entry(),
@@ -138,7 +142,7 @@ _playlist_cache = {
 }
 
 _last_counts = {
-    "cola": 0, "hoiquan": 0, "khandaia": 0, "vongcam": 0, "dekiki": 0,
+    "tieulam": 0, "cola": 0, "hoiquan": 0, "khandaia": 0, "vongcam": 0, "dekiki": 0,
     "refreshed_at": 0, "last_error": "",
 }
 
@@ -598,6 +602,64 @@ def _build_vongcam_lines(matches: list) -> list:
 #  Dekiki — static GitHub M3U fetch + parse
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _parse_tinhlagi_tieulam() -> list:
+    """Fetch tinhlagi.pro's public M3U and extract only the Tiếu Lâm TV group,
+    excluding (HD2) duplicate-quality entries and (Nhà đài) entries."""
+    resp = requests.get(TINHLAGI_M3U_URL, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
+    resp.raise_for_status()
+    lines = resp.text.splitlines()
+    channels = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.startswith("#EXTINF"):
+            m_group = re.search(r'group-title="([^"]*)"', line)
+            group = m_group.group(1) if m_group else ""
+            if "TIẾU LÂM" in group.upper():
+                m_logo = re.search(r'tvg-logo="([^"]*)"', line)
+                logo = m_logo.group(1) if m_logo else ""
+                comma_idx = line.find(",")
+                title = line[comma_idx + 1:].strip() if comma_idx >= 0 else ""
+                referrer = ""
+                url = ""
+                j = i + 1
+                while j < len(lines) and not lines[j].startswith("#EXTINF") and lines[j].strip() != "":
+                    l2 = lines[j]
+                    if l2.startswith("#EXTVLCOPT:http-referrer="):
+                        referrer = l2.split("=", 1)[1].strip()
+                    elif not l2.startswith("#"):
+                        url = l2.strip()
+                    j += 1
+                if url:
+                    title_upper = title.upper()
+                    if "(HD2)" not in title_upper and "NHÀ ĐÀI" not in title_upper:
+                        channels.append({"title": title, "logo": logo, "referrer": referrer, "url": url})
+                i = j
+                continue
+        i += 1
+    return channels
+
+
+def _build_tieulam_lines_from_channels(channels: list) -> list:
+    lines = []
+    for ch in channels:
+        title = ch.get("title", "")
+        url   = ch.get("url", "")
+        if not title or not url:
+            continue
+        logo = ch.get("logo", "")
+        lines.append(f'#EXTINF:-1 tvg-logo="{logo}" group-title="TieuLam TV",{title}')
+        referrer = ch.get("referrer", "")
+        if referrer:
+            lines.append(f"#EXTVLCOPT:http-referrer={referrer}")
+        lines.append(url)
+    return lines
+
+
+def _fetch_tieulam_lines() -> list:
+    return _build_tieulam_lines_from_channels(_parse_tinhlagi_tieulam())
+
+
 def _fetch_dekiki_lines() -> list:
     """Download the GitHub-hosted M3U, strip its header, return raw lines."""
     resp = requests.get(DEKIKI_M3U_URL, timeout=20)
@@ -711,6 +773,9 @@ def _refresh_all_playlists():
     _resolve_all_frontends()
     errors = []
 
+    def fetch_tieulam():
+        return _fetch_tieulam_lines()
+
     def fetch_cola():
         return _build_colatv_lines(_fetch_colatv_matches())
 
@@ -728,11 +793,12 @@ def _refresh_all_playlists():
 
     with ThreadPoolExecutor(max_workers=2) as ex:
         futures = {
-            ex.submit(fetch_cola):   "cola",
-            ex.submit(fetch_hq):     "hoiquan",
-            ex.submit(fetch_kda):    "khandaia",
-            ex.submit(fetch_vc):     "vongcam",
-            ex.submit(fetch_dekiki): "dekiki",
+            ex.submit(fetch_tieulam): "tieulam",
+            ex.submit(fetch_cola):    "cola",
+            ex.submit(fetch_hq):      "hoiquan",
+            ex.submit(fetch_kda):     "khandaia",
+            ex.submit(fetch_vc):      "vongcam",
+            ex.submit(fetch_dekiki):  "dekiki",
         }
         results = {}
         for fut in as_completed(futures):
@@ -743,11 +809,12 @@ def _refresh_all_playlists():
                 results[key] = []
                 errors.append(f"{key}: {e}")
 
-    cola_lines   = results.get("cola",     [])
-    hq_lines     = results.get("hoiquan",  [])
-    kda_lines    = results.get("khandaia", [])
-    vc_lines     = results.get("vongcam",  [])
-    dekiki_lines = results.get("dekiki",   [])
+    tieulam_lines = results.get("tieulam",  [])
+    cola_lines    = results.get("cola",     [])
+    hq_lines      = results.get("hoiquan",  [])
+    kda_lines     = results.get("khandaia", [])
+    vc_lines      = results.get("vongcam",  [])
+    dekiki_lines  = results.get("dekiki",   [])
 
     err_str = "; ".join(errors)
 
@@ -758,20 +825,22 @@ def _refresh_all_playlists():
     epg_header = f'#EXTM3U url-tvg="{EPG_URL}" x-tvg-url="{EPG_URL}"'
 
     # Build + store individual playlists
+    _store("tieulam",  epg_header + "\n" + "\n".join(tieulam_lines))
     _store("cola",     epg_header + "\n" + "\n".join(cola_lines))
     _store("hoiquan",  epg_header + "\n" + "\n".join(hq_lines))
     _store("khandaia", epg_header + "\n" + "\n".join(kda_lines))
     _store("vongcam",  epg_header + "\n" + "\n".join(vc_lines))
     _store("dekiki",   epg_header + "\n" + "\n".join(dekiki_lines))
 
-    # Combined — live sports first, then static TV channels
-    all_lines = cola_lines + hq_lines + kda_lines + vc_lines + dekiki_lines
+    # Combined — Tiếu Lâm TV + live sports first, then static TV channels
+    all_lines = tieulam_lines + cola_lines + hq_lines + kda_lines + vc_lines + dekiki_lines
     combined_text = epg_header + "\n" + "\n".join(all_lines)
     if err_str:
         combined_text += f"\n# Errors: {err_str}"
     _store("combined", combined_text)
 
     _last_counts.update({
+        "tieulam":      count(tieulam_lines),
         "cola":         count(cola_lines),
         "hoiquan":      count(hq_lines),
         "khandaia":     count(kda_lines),
@@ -834,6 +903,10 @@ def _m3u_response(key: str, filename: str) -> Response:
 def live_m3u():
     return _m3u_response("combined", "live.m3u")
 
+@app.route("/tieulam.m3u")
+def tieulam_m3u():
+    return _m3u_response("tieulam", "tieulam.m3u")
+
 @app.route("/cola.m3u")
 def cola_m3u():
     return _m3u_response("cola", "cola.m3u")
@@ -866,7 +939,8 @@ def status_json():
         "next_refresh_in_seconds": next_s,
         "last_error":   _last_counts.get("last_error", ""),
         "channels": {
-            "total":    sum(_last_counts.get(k, 0) for k in ("cola","hoiquan","khandaia","vongcam","dekiki")),
+            "total":    sum(_last_counts.get(k, 0) for k in ("tieulam","cola","hoiquan","khandaia","vongcam","dekiki")),
+            "tieulam_tv":   _last_counts.get("tieulam",  0),
             "cola_tv":      _last_counts.get("cola",     0),
             "hoiquan_tv":   _last_counts.get("hoiquan",  0),
             "khandai_a":    _last_counts.get("khandaia", 0),
@@ -874,6 +948,7 @@ def status_json():
             "dekiki_tv":    _last_counts.get("dekiki",   0),
         },
         "sources": {
+            "tieulam_tv": {"api": TINHLAGI_M3U_URL,               "status": "ok" if _last_counts.get("tieulam",0) > 0 else "empty"},
             "cola_tv":    {"api": _colatv_api_cache.get("url"),   "status": "ok" if _last_counts.get("cola",0)    > 0 else "empty"},
             "hoiquan_tv": {"api": _hoiquan_api_cache.get("url"),  "status": "ok" if _last_counts.get("hoiquan",0) > 0 else "empty"},
             "khandai_a":  {"api": _khandaia_api_cache.get("url"), "status": "ok" if _last_counts.get("khandaia",0)> 0 else "empty"},
@@ -900,17 +975,19 @@ def index():
     err      = _last_counts.get("last_error", "")
     err_html = f'<p style="color:red">⚠️ {err}</p>' if err else ""
 
-    cola_count   = _last_counts.get("cola",    0)
-    hq_count     = _last_counts.get("hoiquan", 0)
-    kda_count    = _last_counts.get("khandaia",0)
-    vc_count     = _last_counts.get("vongcam", 0)
-    dekiki_count = _last_counts.get("dekiki",  0)
-    total        = cola_count + hq_count + kda_count + vc_count + dekiki_count
+    tieulam_count = _last_counts.get("tieulam", 0)
+    cola_count    = _last_counts.get("cola",    0)
+    hq_count      = _last_counts.get("hoiquan", 0)
+    kda_count     = _last_counts.get("khandaia",0)
+    vc_count      = _last_counts.get("vongcam", 0)
+    dekiki_count  = _last_counts.get("dekiki",  0)
+    total         = tieulam_count + cola_count + hq_count + kda_count + vc_count + dekiki_count
 
     return (
         "<h2>🎬 IPTV M3U Server</h2>"
         "<h3>📋 Playlist</h3><ul>"
         "<li><a href='/live.m3u'>/live.m3u</a> — Tất cả nguồn gộp lại</li>"
+        "<li><a href='/tieulam.m3u'>/tieulam.m3u</a> — TieuLam TV only</li>"
         "<li><a href='/cola.m3u'>/cola.m3u</a> — Cola TV only</li>"
         "<li><a href='/hoiquan.m3u'>/hoiquan.m3u</a> — Hội Quán TV only</li>"
         "<li><a href='/khandaia.m3u'>/khandaia.m3u</a> — Khán Đài A only</li>"
@@ -920,9 +997,11 @@ def index():
         "<h3>📊 Trạng thái</h3>"
         f"<p>📺 Tổng kênh: <strong>{total}</strong>"
         f" &nbsp;(🏆 Live: {cola_count + hq_count + kda_count + vc_count}"
-        f" | 📡 TV: {dekiki_count})</p>"
+        f" | 📡 TV: {tieulam_count + dekiki_count})</p>"
         f"<p>🕐 Cập nhật lần cuối: <strong>{dt_str}</strong></p>"
         f"<p>⏳ Cập nhật tiếp theo: <strong>{next_str}</strong></p>"
+        f"<p>🟢 TieuLam TV: <strong>{tieulam_count} kênh</strong>"
+        f"&nbsp;|&nbsp; <code>{TINHLAGI_M3U_URL}</code></p>"
         f"<p>🟢 Cola TV: <strong>{cola_count} kênh</strong>"
         f"&nbsp;|&nbsp; <code>{_colatv_api_cache['url']}</code></p>"
         f"<p>🟢 Hội Quán TV: <strong>{hq_count} kênh</strong>"
