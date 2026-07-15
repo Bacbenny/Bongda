@@ -61,36 +61,30 @@ https://live.fptplay53.net/fnxhd2/quocphongvnhd_vhls.smil/chunklist_b5000000.m3u
 #EXTINF:-1 tvg-name="ON Vie Giải Trí" tvg-logo="https://i.imgur.com/7GSKm46.png" group-title="VTVcab",ON Vie Giải Trí
 https://freem3u.xyz/api/live/play.m3u8?vid=180
 #EXTINF:-1 tvg-id="onfootball" group-title="VTVcab" tvg-logo="https://assets-vtvcab.gviet.vn/images/hq/posters/_ootball_-_opyright_by_cab_logo_202212.jpg", ON Football
-#EXTVLCOPT:http-user-agent=Dalvik/2.1.0
-#KODIPROP:inputstream.adaptive.manifest_type=mpd
-#KODIPROP:inputstream.adaptive.license_type=clearkey
-#KODIPROP:inputstream.adaptive.license_key=https://sgchill.duckdns.org/tv/clearkey.php?id=onfootball
-#EXTVLCOPT:adaptive-variant=max
-#EXTVLCOPT:network-caching=5000
+#KODIPROP:inputstream=inputstream.adaptive 
+#KODIPROP:inputstream.adaptive.manifest_type=dash 
+#KODIPROP:inputstream.adaptive.license_type=clearkey 
+#KODIPROP:inputstream.adaptive.license_key=c410ddc6a75244639fd0561fba5ef19b:30d13ea42031b9ff8271e5dc37d90e10 
 https://cdnet-cdn-01.onsports.vn/onplus/BONGDA_HD/manifest.mpd
 #EXTINF:-1 tvg-id="onsports" group-title="VTVcab" tvg-logo="https://assets-vtvcab.gviet.vn/images/hq/posters/_ports_ng_logo_04202212.jpg",ON Sports
-#EXTVLCOPT:http-user-agent=Dalvik/2.1.0
-#KODIPROP:inputstream.adaptive.manifest_type=mpd
-#KODIPROP:inputstream.adaptive.license_type=clearkey
-#KODIPROP:inputstream.adaptive.license_key=https://sgchill.duckdns.org/tv/clearkey.php?id=onsports
-#EXTVLCOPT:adaptive-variant=max
-#EXTVLCOPT:network-caching=5000
+#KODIPROP:inputstream=inputstream.adaptive 
+#KODIPROP:inputstream.adaptive.manifest_type=dash 
+#KODIPROP:inputstream.adaptive.license_type=clearkey 
+#KODIPROP:inputstream.adaptive.license_key=c410ddc6a75244639fd0561fba5ef19b:30d13ea42031b9ff8271e5dc37d90e10 
 https://cdnet-cdn-01.onsports.vn/onplus/THETHAO_HD/manifest.mpd
 #EXTINF:-1 tvg-id="onsportsplus" group-title="VTVcab" tvg-logo="https://assets-vtvcab.gviet.vn/images/hq/posters/onsportscongmoi1.jpg", ON Sports+ 
-#EXTVLCOPT:http-user-agent=Dalvik/2.1.0
-#KODIPROP:inputstream.adaptive.manifest_type=mpd
-#KODIPROP:inputstream.adaptive.license_type=clearkey
-#KODIPROP:inputstream.adaptive.license_key=https://sgchill.duckdns.org/tv/clearkey.php?id=onsportsplus
-#EXTVLCOPT:adaptive-variant=max
-#EXTVLCOPT:network-caching=5000
+#EXTINF:-1 tvg-id="onsportsplus" tvg-logo="https://vnepg.site/logos/17.png" group-title="VTVcab",ON Sports+
+#KODIPROP:inputstream=inputstream.adaptive 
+#KODIPROP:inputstream.adaptive.manifest_type=dash 
+#KODIPROP:inputstream.adaptive.license_type=clearkey 
+#KODIPROP:inputstream.adaptive.license_key=c410ddc6a75244639fd0561fba5ef19b:30d13ea42031b9ff8271e5dc37d90e10 
 https://cdnet-cdn-01.onsports.vn/onplus/HAY_TV/manifest.mpd
 #EXTINF:-1 tvg-id="onsportsnews" group-title="VTVcab" tvg-logo="https://assets-vtvcab.gviet.vn/images/v2/channel/20220613/2022061306/Logo_ONSPORTSNEWS_150x904_1675158858.webp", ON Sports News
-#EXTVLCOPT:http-user-agent=Dalvik/2.1.0
-#KODIPROP:inputstream.adaptive.manifest_type=mpd
-#KODIPROP:inputstream.adaptive.license_type=clearkey
-#KODIPROP:inputstream.adaptive.license_key=https://sgchill.duckdns.org/tv/clearkey.php?id=onsportsnews
-#EXTVLCOPT:adaptive-variant=max
-#EXTVLCOPT:network-caching=5000
+#EXTINF:-1 tvg-id="onsportsnews" tvg-logo="https://vnepg.site/logos/26.png" group-title="VTVcab",ON Sports News
+#KODIPROP:inputstream=inputstream.adaptive 
+#KODIPROP:inputstream.adaptive.manifest_type=dash 
+#KODIPROP:inputstream.adaptive.license_type=clearkey 
+#KODIPROP:inputstream.adaptive.license_key=c410ddc6a75244639fd0561fba5ef19b:30d13ea42031b9ff8271e5dc37d90e10 
 https://cdnet-cdn-01.onsports.vn/onplus/THETHAO_TINTUC_HD/manifest.mpd
 #EXTINF:-1 tvg-name="ON Phim Việt" tvg-logo="https://i.imgur.com/MPNlpzb.png" group-title="VTVcab",ON Phim Việt
 https://toiyeuvietnam.dpdns.org/TuyetDoiKhongKinhDoanh/vtvcab-2-phim-viet-hd/KenhCoBan.m3u8
@@ -121,7 +115,11 @@ https://freem3u.xyz/api/live/play.m3u8?vid=179
 #EXTINF:-1 tvg-name="On Life" tvg-logo="https://i.imgur.com/2xT5HFx.png" group-title="VTVcab",On Life
 https://freem3u.xyz/api/live/play.m3u8?vid=188
 #EXTINF:-1 tvg-name="ON Golf" tvg-logo="https://i.imgur.com/BGF2I58.png" group-title="VTVcab",ON Golf
-https://vpsttt.vietanhtv.top/tv360/tv360.php?id=169
+#KODIPROP:inputstream=inputstream.adaptive 
+#KODIPROP:inputstream.adaptive.manifest_type=dash 
+#KODIPROP:inputstream.adaptive.license_type=clearkey 
+#KODIPROP:inputstream.adaptive.license_key=c410ddc6a75244639fd0561fba5ef19b:30d13ea42031b9ff8271e5dc37d90e10 
+https://cdnet-cdn-01.onsports.vn/onplus/THETHAO_GOLF_HD/manifest.mpd
 #EXTINF:-1 tvg-id="sctv1hd" group-title="SCTV" tvg-logo="https://i.ibb.co/yBnxfhH/sctv1-hd.png",SCTV1
 #EXTVLCOPT:http-user-agent=Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36
 #EXTVLCOPT:adaptive-variant=max
