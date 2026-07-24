@@ -18,18 +18,11 @@ app = Flask(__name__)
 COLATV_FRONTEND_URL   = os.environ.get("COLATV_FRONTEND", "https://colatv48.live")
 COLATV_KNOWN_API_URL  = os.environ.get("COLATV_API",      "https://api.cltvlv.com/api/matches")
 
-# ─── Hội Quán TV config ───────────────────────────────────────────────────────
-HOIQUAN_FRONTEND_URL  = os.environ.get("HOIQUAN_FRONTEND", "https://sv2.hoiquan4.live")
-HOIQUAN_KNOWN_API_BASE= os.environ.get("HOIQUAN_API",      "https://sv.hoiquantv.xyz/api/v1/external")
 
-# ─── Khán Đài A config ───────────────────────────────────────────────────────
-KHANDAIA_FRONTEND_URL   = os.environ.get("KHANDAIA_FRONTEND", "https://tructiep.khandaia.link")
-KHANDAIA_KNOWN_API_BASE = os.environ.get("KHANDAIA_API",      "https://sv.khandai-a.xyz/api/v1/external")
 
-# ─── Vòng Cấm TV config ──────────────────────────────────────────────────────
-VONGCAM_FRONTEND_URL   = os.environ.get("VONGCAM_FRONTEND", "https://sv2.vongcam3.live")
-VONGCAM_KNOWN_API_BASE = os.environ.get("VONGCAM_API",      "https://sv.bugiotv.xyz/internal/api/matches")
-VONGCAM_FALLBACK_TOKEN = os.environ.get("VONGCAM_TOKEN",    "AB321C")
+# ─── Pháo Hoa TV config ──────────────────────────────────────────────────────
+PHAOHOA_FRONTEND_URL   = os.environ.get("PHAOHOA_FRONTEND", "https://phaohoa1.live")
+PHAOHOA_API_URL        = os.environ.get("PHAOHOA_API",      "https://phaohoa1.live/api/matches/")
 
 # ─── Dekiki (GitHub-hosted static list) + EPG ────────────────────────────────
 DEKIKI_M3U_URL = os.environ.get(
@@ -74,14 +67,12 @@ SPORT_LOGOS = {
 
 # ─── API URL caches ───────────────────────────────────────────────────────────
 _colatv_api_cache   = {"url": COLATV_KNOWN_API_URL,    "discovered_at": 0}
-_hoiquan_api_cache  = {"url": HOIQUAN_KNOWN_API_BASE,  "discovered_at": 0}
-_khandaia_api_cache = {"url": KHANDAIA_KNOWN_API_BASE, "discovered_at": 0}
-_vongcam_api_cache  = {"url": VONGCAM_KNOWN_API_BASE,  "discovered_at": 0}
+_phaohoa_api_cache  = {"url": PHAOHOA_API_URL,  "discovered_at": 0}
 
 # ─── Auto domain resolution ───────────────────────────────────────────────────
 def _resolve_base_url(url: str, timeout: int = 8) -> str:
     """Follow HTTP 3xx redirects và trả về scheme+host cuối cùng.
-    Tự động phát hiện khi domain đổi (vd: khandaia.link → khandaia4.link).
+    Tự động phát hiện khi domain đổi (vd: phaohoa1.live → phaohoa2.live).
     """
     try:
         r = requests.get(
@@ -96,16 +87,12 @@ def _resolve_base_url(url: str, timeout: int = 8) -> str:
 
 
 def _resolve_all_frontends() -> None:
-    """Tự động cập nhật HOIQUAN/KHANDAIA/VONGCAM _FRONTEND_URL bằng cách follow redirect.
-    Gọi lúc đầu mỗi chu kỳ refresh để luôn dùng domain thực tế.
-    """
-    global HOIQUAN_FRONTEND_URL, KHANDAIA_FRONTEND_URL, VONGCAM_FRONTEND_URL
+    """Tự động cập nhật PHAOHOA _FRONTEND_URL bằng cách follow redirect."""
+    global PHAOHOA_FRONTEND_URL
     sources = {
-        "Hội Quán TV": ("HOIQUAN",  HOIQUAN_FRONTEND_URL),
-        "Khán Đài A":  ("KHANDAIA", KHANDAIA_FRONTEND_URL),
-        "Vòng Cấm TV": ("VONGCAM",  VONGCAM_FRONTEND_URL),
+        "Pháo Hoa TV": ("PHAOHOA", PHAOHOA_FRONTEND_URL),
     }
-    with ThreadPoolExecutor(max_workers=3) as pool:
+    with ThreadPoolExecutor(max_workers=1) as pool:
         futures = {pool.submit(_resolve_base_url, cfg[1]): (name, cfg) for name, cfg in sources.items()}
         for fut in as_completed(futures):
             (name, (key, original)) = futures[fut]
@@ -115,15 +102,10 @@ def _resolve_all_frontends() -> None:
                 resolved = original
             if resolved != original.rstrip("/"):
                 print(f"[domain-resolve] {name}: {original} → {resolved}", flush=True)
-            if key == "HOIQUAN":
-                HOIQUAN_FRONTEND_URL = resolved
-            elif key == "KHANDAIA":
-                KHANDAIA_FRONTEND_URL = resolved
-            elif key == "VONGCAM":
-                VONGCAM_FRONTEND_URL = resolved
+            if key == "PHAOHOA":
+                PHAOHOA_FRONTEND_URL = resolved
 
 
-_vongcam_token_cache = {"token": VONGCAM_FALLBACK_TOKEN, "discovered_at": 0}
 
 # ─── Playlist content cache ───────────────────────────────────────────────────
 # Each entry stores: raw bytes, gzip bytes, md5 etag, and build timestamp.
@@ -135,14 +117,12 @@ _playlist_cache = {
     "combined": _empty_entry(),
     "tieulam":  _empty_entry(),
     "cola":     _empty_entry(),
-    "hoiquan":  _empty_entry(),
-    "khandaia": _empty_entry(),
-    "vongcam":  _empty_entry(),
+    "phaohoa":  _empty_entry(),
     "dekiki":   _empty_entry(),
 }
 
 _last_counts = {
-    "tieulam": 0, "cola": 0, "hoiquan": 0, "khandaia": 0, "vongcam": 0, "dekiki": 0,
+    "tieulam": 0, "cola": 0, "phaohoa": 0, "dekiki": 0,
     "refreshed_at": 0, "last_error": "",
 }
 
@@ -289,294 +269,116 @@ def _build_colatv_lines(matches: dict) -> list:
     return lines
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  Hội Quán TV — API discovery + fetch
+#  Pháo Hoa TV — fetch từ phaohoa1.live/api/matches (Django REST, không token)
+#  API  : https://phaohoa1.live/api/matches/?page=N
+#  Schema: {count, next, previous, results: [{id, sport_name, sport_icon_url,
+#            tournament_name, home_team_name, home_team_logo, away_team_name,
+#            away_team_logo, start_time, status, primary_stream_url,
+#            backup_stream_url, commentators}]}
 # ══════════════════════════════════════════════════════════════════════════════
 
-_HQ_HEADERS = {
+_PHAOHOA_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     ),
+    "Referer": "https://phaohoa1.live/",
 }
 
-def _discover_hoiquan_api(scraper) -> str:
-    try:
-        r = scraper.get(HOIQUAN_FRONTEND_URL, timeout=10)
-        js_files = re.findall(r'src="(/assets/[^"]+\.js)"', r.text)
-        if not js_files:
-            js_files = re.findall(r'src="(/assets/js/[^"]+\.js)"', r.text)
-        if not js_files:
-            return HOIQUAN_KNOWN_API_BASE
-        js = scraper.get(HOIQUAN_FRONTEND_URL.rstrip("/") + js_files[0], timeout=15).text
-        hits = re.findall(r'VITE_SERVER_API_BASE_URL:"(https://[^"]+)"', js)
-        if hits:
-            return hits[0]
-        hits = re.findall(r'https://sv\.[a-z0-9\-\.]+/api/v1/external', js)
-        if hits:
-            return hits[0]
-    except Exception:
-        pass
-    return HOIQUAN_KNOWN_API_BASE
-
-def _get_hoiquan_api_base(scraper) -> str:
-    now = time.time()
-    if now - _hoiquan_api_cache["discovered_at"] > API_DISCOVERY_TTL:
-        _hoiquan_api_cache["url"] = _discover_hoiquan_api(scraper)
-        _hoiquan_api_cache["discovered_at"] = now
-    return _hoiquan_api_cache["url"]
-
-def _fetch_hoiquan_fixtures() -> list:
-    scraper = cloudscraper.create_scraper()
-    api_base = _get_hoiquan_api_base(scraper)
-    url = api_base.rstrip("/") + "/fixtures/unfinished"
-    headers = {**_HQ_HEADERS, "Referer": HOIQUAN_FRONTEND_URL + "/"}
-    try:
-        resp = scraper.get(url, headers=headers, timeout=15)
-        resp.raise_for_status()
-    except Exception:
-        _hoiquan_api_cache["discovered_at"] = 0
-        api_base = _get_hoiquan_api_base(scraper)
-        url = api_base.rstrip("/") + "/fixtures/unfinished"
-        resp = scraper.get(url, headers=headers, timeout=15)
-        resp.raise_for_status()
-    data = resp.json()
-    if not data.get("success"):
-        return []
-    return data.get("data", [])
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  Khán Đài A — API discovery + fetch  (same schema as Hội Quán TV)
-# ══════════════════════════════════════════════════════════════════════════════
-
-def _discover_khandaia_api(scraper) -> str:
-    try:
-        r = scraper.get(KHANDAIA_FRONTEND_URL, timeout=10)
-        js_files = re.findall(r'src="(/assets/[^"]+\.js)"', r.text)
-        if not js_files:
-            return KHANDAIA_KNOWN_API_BASE
-        for js_path in js_files:
-            js = scraper.get(KHANDAIA_FRONTEND_URL.rstrip("/") + js_path, timeout=20).text
-            chunk_paths = re.findall(r'assets/queries[^"\']+\.js', js)
-            for cp in chunk_paths[:2]:
-                chunk = scraper.get(KHANDAIA_FRONTEND_URL.rstrip("/") + "/" + cp, timeout=15).text
-                hits = re.findall(r'https://sv\.[a-z0-9\-\.]+/api/v1/external', chunk)
-                if hits:
-                    return hits[0]
-            hits = re.findall(r'https://sv\.[a-z0-9\-\.]+/api/v1/external', js)
-            if hits:
-                return hits[0]
-    except Exception:
-        pass
-    return KHANDAIA_KNOWN_API_BASE
-
-def _get_khandaia_api_base(scraper) -> str:
-    now = time.time()
-    if now - _khandaia_api_cache["discovered_at"] > API_DISCOVERY_TTL:
-        _khandaia_api_cache["url"] = _discover_khandaia_api(scraper)
-        _khandaia_api_cache["discovered_at"] = now
-    return _khandaia_api_cache["url"]
-
-def _fetch_khandaia_fixtures() -> list:
-    scraper = cloudscraper.create_scraper()
-    api_base = _get_khandaia_api_base(scraper)
-    url = api_base.rstrip("/") + "/fixtures/unfinished"
-    headers = {**_HQ_HEADERS, "Referer": KHANDAIA_FRONTEND_URL + "/"}
-    try:
-        resp = scraper.get(url, headers=headers, timeout=15)
-        resp.raise_for_status()
-    except Exception:
-        _khandaia_api_cache["discovered_at"] = 0
-        api_base = _get_khandaia_api_base(scraper)
-        url = api_base.rstrip("/") + "/fixtures/unfinished"
-        resp = scraper.get(url, headers=headers, timeout=15)
-        resp.raise_for_status()
-    data = resp.json()
-    if not data.get("success"):
-        return []
-    return data.get("data", [])
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  Vòng Cấm TV — API discovery + token discovery + fetch
-#  Frontend : https://sv2.vongcam3.live
-#  Matches  : https://sv.bugiotv.xyz/internal/api/matches
-#  Auth     : Access-Token header (token discovered from JS bundle, re-discovered hourly or on 401)
-#  Schema   : {code, message, data: [{id, title, tournamentName,
-#               homeClub:{name,logoUrl}, awayClub:{name,logoUrl},
-#               startTime, isLive,
-#               commentator:{nickname, streamSourceSd,
-#                            streamSourceHd, streamSourceFhd}}]}
-# ══════════════════════════════════════════════════════════════════════════════
-
-def _discover_vongcam_api(scraper) -> str:
-    """Re-discover bugiotv API base URL from the Vòng Cấm TV JS bundle."""
-    try:
-        r = scraper.get(VONGCAM_FRONTEND_URL, timeout=10)
-        js_files = re.findall(r'src="(/assets/[^"]+\.js)"', r.text)
-        if not js_files:
-            return VONGCAM_KNOWN_API_BASE
-        for js_path in js_files:
-            js = scraper.get(VONGCAM_FRONTEND_URL.rstrip("/") + js_path, timeout=20).text
-            hits = re.findall(r'https?://[a-z0-9\-\.]+/internal/api/matches', js)
-            if hits:
-                return hits[0]
-    except Exception:
-        pass
-    return VONGCAM_KNOWN_API_BASE
-
-def _get_vongcam_api_base(scraper) -> str:
-    now = time.time()
-    if now - _vongcam_api_cache["discovered_at"] > API_DISCOVERY_TTL:
-        _vongcam_api_cache["url"] = _discover_vongcam_api(scraper)
-        _vongcam_api_cache["discovered_at"] = now
-    return _vongcam_api_cache["url"]
-
-def _discover_vongcam_token(scraper) -> str:
-    """Re-discover the Vòng Cấm TV Access-Token from the JS bundle.
-    Looks for common patterns like "AB321C" near access-token / accessToken keys,
-    or a capitalized hex/alphanumeric literal embedded near the API call.
-    Returns the discovered token, or the fallback if nothing found.
+def _fetch_phaohoa_matches() -> list:
+    """Fetch tất cả trận đang live/sắp diễn ra từ phaohoa1.live.
+    Lấy tối đa 5 trang đầu (500 trận), filter bỏ trận đã kết thúc.
     """
-    token_patterns = [
-        r'["\']?(?:access[-_]?token|accessToken|token)["\']?\s*[:=]\s*["\']([A-Za-z0-9]{4,32})["\']',
-        r'headers\s*\.\s*append\s*\(\s*["\']access-token["\']\s*,\s*["\']([A-Za-z0-9]{4,32})["\']',
-        r'["\']Access-Token["\']\s*:\s*["\']([A-Za-z0-9]{4,32})["\']',
-        r'["\']access-token["\']\s*:\s*["\']([A-Za-z0-9]{4,32})["\']',
-    ]
-    try:
-        r = scraper.get(VONGCAM_FRONTEND_URL, timeout=10)
-        js_files = re.findall(r'src="(/assets/[^"]+\.js)"', r.text)
-        for js_path in js_files:
-            try:
-                js = scraper.get(VONGCAM_FRONTEND_URL.rstrip("/") + js_path, timeout=20).text
-            except Exception:
-                continue
-            for pat in token_patterns:
-                hits = re.findall(pat, js, flags=re.IGNORECASE)
-                for hit in hits:
-                    # Skip obvious false positives (pure digits or too long)
-                    if hit.isalpha() or hit.isalnum() and 4 <= len(hit) <= 32:
-                        return hit
-    except Exception:
-        pass
-    return VONGCAM_FALLBACK_TOKEN
-
-def _get_vongcam_token(scraper) -> str:
-    now = time.time()
-    if now - _vongcam_token_cache["discovered_at"] > API_DISCOVERY_TTL:
-        new_token = _discover_vongcam_token(scraper)
-        if new_token:
-            _vongcam_token_cache["token"] = new_token
-        _vongcam_token_cache["discovered_at"] = now
-    return _vongcam_token_cache["token"]
-
-def _vongcam_request(scraper, api_url: str, headers: dict):
-    """GET with current token; on 401 re-discover token once and retry."""
-    resp = scraper.get(api_url, headers=headers, timeout=15)
-    if resp.status_code == 401:
-        # Force token re-discovery then retry exactly once.
-        _vongcam_token_cache["discovered_at"] = 0
-        new_token = _get_vongcam_token(scraper)
-        headers = {**headers, "Access-Token": new_token}
-        resp = scraper.get(api_url, headers=headers, timeout=15)
-    return resp
-
-def _fetch_vongcam_matches() -> list:
     scraper = cloudscraper.create_scraper()
-    api_url = _get_vongcam_api_base(scraper)
-    token   = _get_vongcam_token(scraper)
-    headers = {
-        **_HQ_HEADERS,
-        "Referer":      VONGCAM_FRONTEND_URL + "/",
-        "Origin":       VONGCAM_FRONTEND_URL,
-        "Access-Token": token,
-    }
-    try:
-        resp = _vongcam_request(scraper, api_url, headers)
-        resp.raise_for_status()
-    except Exception:
-        # Re-discover both URL and token, then retry once.
-        _vongcam_api_cache["discovered_at"]   = 0
-        _vongcam_token_cache["discovered_at"] = 0
-        api_url = _get_vongcam_api_base(scraper)
-        token   = _get_vongcam_token(scraper)
-        headers = {
-            **_HQ_HEADERS,
-            "Referer":      VONGCAM_FRONTEND_URL + "/",
-            "Origin":       VONGCAM_FRONTEND_URL,
-            "Access-Token": token,
-        }
-        resp = _vongcam_request(scraper, api_url, headers)
-        resp.raise_for_status()
-    data = resp.json()
-    if data.get("code") != 200:
-        return []
-    return data.get("data", [])
+    results = []
+    url = PHAOHOA_API_URL.rstrip("/") + "/"
+    for _ in range(5):  # tối đa 5 trang
+        try:
+            resp = scraper.get(url, headers=_PHAOHOA_HEADERS, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception:
+            break
+        page_results = data.get("results", [])
+        results.extend(page_results)
+        next_url = data.get("next")
+        if not next_url:
+            break
+        url = next_url
+    return results
 
-def _vongcam_is_active(match: dict) -> bool:
-    if bool(match.get("isLive")):
-        return True
-    start_str = match.get("startTime", "")
+def _phaohoa_is_active(match: dict) -> bool:
+    """Trận hợp lệ nếu chưa kết thúc và có stream URL."""
+    status = str(match.get("status") or "").lower().strip()
+    if status in FINISHED_STATUS_STRINGS:
+        return False
+    # Kiểm tra thời gian: bỏ trận đã quá MATCH_MAX_AGE_SECONDS
+    start_str = match.get("start_time", "")
     if start_str:
         try:
-            if "+" not in start_str and not start_str.endswith("Z"):
-                start_str += "+07:00"  # bugiotv API trả startTime theo giờ VN (UTC+7)
             dt      = datetime.fromisoformat(start_str)
             elapsed = time.time() - dt.timestamp()
-            if elapsed < MATCH_MAX_AGE_SECONDS:
-                return True
+            if elapsed > MATCH_MAX_AGE_SECONDS:
+                return False
         except Exception:
             pass
-    return False
+    # Phải có ít nhất 1 stream URL
+    has_stream = bool(
+        (match.get("primary_stream_url") or "").strip()
+        or (match.get("backup_stream_url") or "").strip()
+        or any(
+            (c.get("stream_url") or c.get("streamUrl") or "").strip()
+            for c in (match.get("commentators") or [])
+        )
+    )
+    return has_stream
 
-def _pick_vongcam_stream(commentator: dict) -> str:
-    for key in ("streamSourceFhd", "streamSourceHd", "streamSourceSd"):
-        url = (commentator.get(key) or "").strip()
+def _pick_phaohoa_stream(match: dict) -> tuple:
+    """Trả về (stream_url, commentator_name)."""
+    # Ưu tiên commentators trước
+    for c in (match.get("commentators") or []):
+        url = (c.get("stream_url") or c.get("streamUrl") or "").strip()
+        name = (c.get("nickname") or c.get("name") or "").strip()
         if url:
-            return url
-    return ""
+            return url, name
+    # Fallback: primary rồi backup stream
+    primary = (match.get("primary_stream_url") or "").strip()
+    if primary:
+        return primary, ""
+    backup = (match.get("backup_stream_url") or "").strip()
+    if backup:
+        return backup, ""
+    return "", ""
 
-def _vongcam_logo(match: dict) -> str:
-    """Logo cho Vòng Cấm TV.
-    bugiotv API không có sport-type field riêng → ghép tournamentName + title + slug + tags.
-    """
-    for key in ("sportType", "sport", "sportName", "sportSlug"):
-        val = match.get(key)
-        if isinstance(val, dict):
-            icon = val.get("iconUrl") or val.get("icon", "")
-            if icon:
-                return icon
-            val = val.get("name") or val.get("slug") or val.get("type", "")
-        if val and isinstance(val, str) and val.upper() not in ("MANUAL", "AUTO"):
-            logo = _logo_from_text(val)
-            if logo != SPORT_LOGOS["football"]:
-                return logo
-    parts = [
-        match.get("tournamentName", ""),
-        match.get("title", ""),
-        match.get("slug", ""),
-    ]
-    tags = match.get("tags") or []
-    if isinstance(tags, list):
-        parts.extend(str(t) for t in tags)
-    return _logo_from_text(" ".join(p for p in parts if p))
+def _phaohoa_logo(match: dict) -> str:
+    """Logo dựa trên sport_icon_url (có sẵn từ API) hoặc sport_name."""
+    icon = (match.get("sport_icon_url") or "").strip()
+    if icon:
+        # Nếu là relative path thì prepend domain
+        if icon.startswith("/"):
+            icon = PHAOHOA_FRONTEND_URL.rstrip("/") + icon
+        return icon
+    return _logo_from_text(match.get("sport_name") or match.get("sport_slug") or "")
 
-def _build_vongcam_lines(matches: list) -> list:
+def _build_phaohoa_lines(matches: list) -> list:
     lines = []
+    # Sắp xếp theo start_time
     try:
-        matches = sorted(matches, key=lambda m: m.get("startTime") or "")
+        matches = sorted(matches, key=lambda m: m.get("start_time") or "")
     except Exception:
         pass
     for match in matches:
-        if not _vongcam_is_active(match):
+        if not _phaohoa_is_active(match):
             continue
-        home       = match.get("homeClub", {}).get("name", "Home").strip()
-        away       = match.get("awayClub", {}).get("name", "Away").strip()
-        tournament = match.get("tournamentName", "")
-        logo       = _vongcam_logo(match)
-        start_str  = match.get("startTime", "")
+        stream_url, commentator = _pick_phaohoa_stream(match)
+        if not stream_url:
+            continue
+        home       = (match.get("home_team_name") or "Home").strip()
+        away       = (match.get("away_team_name") or "Away").strip()
+        tournament = (match.get("tournament_name") or "").strip()
+        logo       = _phaohoa_logo(match)
+        start_str  = match.get("start_time", "")
         try:
-            if "+" not in start_str and not start_str.endswith("Z"):
-                start_str += "+07:00"  # bugiotv API trả startTime theo giờ VN (UTC+7)
             dt       = datetime.fromisoformat(start_str)
             dt_vn    = dt.astimezone(VN_TZ)
             time_str = dt_vn.strftime("%H:%M")
@@ -584,18 +386,14 @@ def _build_vongcam_lines(matches: list) -> list:
         except Exception:
             time_str = "--:--"
             date_str = "--/--"
-        commentator = match.get("commentator")
-        if not commentator:
-            continue
-        stream_url = _pick_vongcam_stream(commentator)
-        if not stream_url:
-            continue
-        nickname = (commentator.get("nickname") or "").strip()
-        display  = f"{time_str} - {date_str} | {home} VS {away} ({tournament}) | {nickname}"
-        lines.append(f'#EXTINF:-1 tvg-logo="{logo}" group-title="Vòng Cấm TV",{display}')
-        _vc_ref = VONGCAM_FRONTEND_URL.rstrip("/") + "/"
-        _vc_url = stream_url + (f"|Referer={_vc_ref}&User-Agent=Mozilla/5.0" if "|" not in stream_url else "")
-        lines.append(_vc_url)
+        if commentator:
+            display = f"{time_str} - {date_str} | {home} VS {away} ({tournament}) | {commentator}"
+        else:
+            display = f"{time_str} - {date_str} | {home} VS {away} ({tournament})"
+        lines.append(f'#EXTINF:-1 tvg-logo="{logo}" group-title="Pháo Hoa TV",{display}')
+        _ref = PHAOHOA_FRONTEND_URL.rstrip("/") + "/"
+        _final_url = stream_url + (f"|Referer={_ref}&User-Agent=Mozilla/5.0" if "|" not in stream_url else "")
+        lines.append(_final_url)
     return lines
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -650,7 +448,7 @@ _TIEULAM_TITLE_RE = re.compile(
 
 def _format_tieulam_title(title: str) -> str:
     """Chuẩn hoá tiêu đề Tiếu Lâm TV theo định dạng dùng dấu gạch ngang/gạch đứng
-    giống Khán Đài A / Vòng Cấm TV: 'HH:MM - DD/MM | Home VS Away | BLV ...',
+    giống Pháo Hoa TV: 'HH:MM - DD/MM | Home VS Away | BLV ...',
     đồng thời bỏ thẻ [geo]."""
     m = _TIEULAM_TITLE_RE.match(title.strip())
     if not m:
@@ -700,7 +498,7 @@ def _fetch_dekiki_lines() -> list:
     return lines
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  Shared fixture helpers  (Hội Quán TV + Khán Đài A use same schema)
+#  Shared fixture helpers  (Cola TV)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _fixture_is_active(fixture: dict) -> bool:
@@ -766,13 +564,7 @@ def _build_fixture_lines(fixtures: list, group_title: str) -> list:
                 continue
             display = f"{time_str} - {date_str} | {home} VS {away} ({league}) | {name}"
             lines.append(f'#EXTINF:-1 tvg-logo="{logo}" group-title="{group_title}",{display}')
-            _referer_map = {
-                "Hội Quán TV": HOIQUAN_FRONTEND_URL.rstrip("/") + "/",
-                "Khán Đài A":  KHANDAIA_FRONTEND_URL.rstrip("/") + "/",
-            }
-            _ref = _referer_map.get(group_title, "")
-            _final_url = stream_url + (f"|Referer={_ref}&User-Agent=Mozilla/5.0" if _ref and "|" not in stream_url else "")
-            lines.append(_final_url)
+            lines.append(stream_url)
     return lines
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -806,26 +598,18 @@ def _refresh_all_playlists():
     def fetch_cola():
         return _build_colatv_lines(_fetch_colatv_matches())
 
-    def fetch_hq():
-        return _build_fixture_lines(_fetch_hoiquan_fixtures(), "Hội Quán TV")
-
-    def fetch_kda():
-        return _build_fixture_lines(_fetch_khandaia_fixtures(), "Khán Đài A")
-
-    def fetch_vc():
-        return _build_vongcam_lines(_fetch_vongcam_matches())
+    def fetch_phaohoa():
+        return _build_phaohoa_lines(_fetch_phaohoa_matches())
 
     def fetch_dekiki():
         return _fetch_dekiki_lines()
 
     with ThreadPoolExecutor(max_workers=2) as ex:
         futures = {
-            ex.submit(fetch_tieulam): "tieulam",
-            ex.submit(fetch_cola):    "cola",
-            ex.submit(fetch_hq):      "hoiquan",
-            ex.submit(fetch_kda):     "khandaia",
-            ex.submit(fetch_vc):      "vongcam",
-            ex.submit(fetch_dekiki):  "dekiki",
+            ex.submit(fetch_tieulam):  "tieulam",
+            ex.submit(fetch_cola):     "cola",
+            ex.submit(fetch_phaohoa):  "phaohoa",
+            ex.submit(fetch_dekiki):   "dekiki",
         }
         results = {}
         for fut in as_completed(futures):
@@ -836,12 +620,10 @@ def _refresh_all_playlists():
                 results[key] = []
                 errors.append(f"{key}: {e}")
 
-    tieulam_lines = results.get("tieulam",  [])
-    cola_lines    = results.get("cola",     [])
-    hq_lines      = results.get("hoiquan",  [])
-    kda_lines     = results.get("khandaia", [])
-    vc_lines      = results.get("vongcam",  [])
-    dekiki_lines  = results.get("dekiki",   [])
+    tieulam_lines  = results.get("tieulam",  [])
+    cola_lines     = results.get("cola",     [])
+    phaohoa_lines  = results.get("phaohoa",  [])
+    dekiki_lines   = results.get("dekiki",   [])
 
     err_str = "; ".join(errors)
 
@@ -854,13 +636,11 @@ def _refresh_all_playlists():
     # Build + store individual playlists
     _store("tieulam",  epg_header + "\n" + "\n".join(tieulam_lines))
     _store("cola",     epg_header + "\n" + "\n".join(cola_lines))
-    _store("hoiquan",  epg_header + "\n" + "\n".join(hq_lines))
-    _store("khandaia", epg_header + "\n" + "\n".join(kda_lines))
-    _store("vongcam",  epg_header + "\n" + "\n".join(vc_lines))
+    _store("phaohoa",  epg_header + "\n" + "\n".join(phaohoa_lines))
     _store("dekiki",   epg_header + "\n" + "\n".join(dekiki_lines))
 
     # Combined — Tiếu Lâm TV + live sports first, then static TV channels
-    all_lines = tieulam_lines + cola_lines + hq_lines + kda_lines + vc_lines + dekiki_lines
+    all_lines = tieulam_lines + cola_lines + phaohoa_lines + dekiki_lines
     combined_text = epg_header + "\n" + "\n".join(all_lines)
     if err_str:
         combined_text += f"\n# Errors: {err_str}"
@@ -869,9 +649,7 @@ def _refresh_all_playlists():
     _last_counts.update({
         "tieulam":      count(tieulam_lines),
         "cola":         count(cola_lines),
-        "hoiquan":      count(hq_lines),
-        "khandaia":     count(kda_lines),
-        "vongcam":      count(vc_lines),
+        "phaohoa":      count(phaohoa_lines),
         "dekiki":       count(dekiki_lines),
         "refreshed_at": time.time(),
         "last_error":   err_str,
@@ -938,17 +716,9 @@ def tieulam_m3u():
 def cola_m3u():
     return _m3u_response("cola", "cola.m3u")
 
-@app.route("/hoiquan.m3u")
-def hoiquan_m3u():
-    return _m3u_response("hoiquan", "hoiquan.m3u")
-
-@app.route("/khandaia.m3u")
-def khandaia_m3u():
-    return _m3u_response("khandaia", "khandaia.m3u")
-
-@app.route("/vongcam.m3u")
-def vongcam_m3u():
-    return _m3u_response("vongcam", "vongcam.m3u")
+@app.route("/phaohoa.m3u")
+def phaohoa_m3u():
+    return _m3u_response("phaohoa", "phaohoa.m3u")
 
 @app.route("/dekiki.m3u")
 def dekiki_m3u():
@@ -966,21 +736,17 @@ def status_json():
         "next_refresh_in_seconds": next_s,
         "last_error":   _last_counts.get("last_error", ""),
         "channels": {
-            "total":    sum(_last_counts.get(k, 0) for k in ("tieulam","cola","hoiquan","khandaia","vongcam","dekiki")),
-            "tieulam_tv":   _last_counts.get("tieulam",  0),
-            "cola_tv":      _last_counts.get("cola",     0),
-            "hoiquan_tv":   _last_counts.get("hoiquan",  0),
-            "khandai_a":    _last_counts.get("khandaia", 0),
-            "vongcam_tv":   _last_counts.get("vongcam",  0),
-            "dekiki_tv":    _last_counts.get("dekiki",   0),
+            "total":      sum(_last_counts.get(k, 0) for k in ("tieulam","cola","phaohoa","dekiki")),
+            "tieulam_tv": _last_counts.get("tieulam", 0),
+            "cola_tv":    _last_counts.get("cola",    0),
+            "phaohoa_tv": _last_counts.get("phaohoa", 0),
+            "dekiki_tv":  _last_counts.get("dekiki",  0),
         },
         "sources": {
-            "tieulam_tv": {"api": TINHLAGI_M3U_URL,               "status": "ok" if _last_counts.get("tieulam",0) > 0 else "empty"},
-            "cola_tv":    {"api": _colatv_api_cache.get("url"),   "status": "ok" if _last_counts.get("cola",0)    > 0 else "empty"},
-            "hoiquan_tv": {"api": _hoiquan_api_cache.get("url"),  "status": "ok" if _last_counts.get("hoiquan",0) > 0 else "empty"},
-            "khandai_a":  {"api": _khandaia_api_cache.get("url"), "status": "ok" if _last_counts.get("khandaia",0)> 0 else "empty"},
-            "vongcam_tv": {"api": _vongcam_api_cache.get("url"), "token": _vongcam_token_cache.get("token"), "status": "ok" if _last_counts.get("vongcam",0) > 0 else "empty"},
-            "dekiki_tv":  {"api": "github-static",                "status": "ok" if _last_counts.get("dekiki",0)  > 0 else "empty"},
+            "tieulam_tv": {"api": TINHLAGI_M3U_URL,              "status": "ok" if _last_counts.get("tieulam",0) > 0 else "empty"},
+            "cola_tv":    {"api": _colatv_api_cache.get("url"),  "status": "ok" if _last_counts.get("cola",0)    > 0 else "empty"},
+            "phaohoa_tv": {"api": PHAOHOA_API_URL,               "status": "ok" if _last_counts.get("phaohoa",0) > 0 else "empty"},
+            "dekiki_tv":  {"api": "github-static",               "status": "ok" if _last_counts.get("dekiki",0)  > 0 else "empty"},
         },
     })
 
@@ -1002,13 +768,11 @@ def index():
     err      = _last_counts.get("last_error", "")
     err_html = f'<p style="color:red">⚠️ {err}</p>' if err else ""
 
-    tieulam_count = _last_counts.get("tieulam", 0)
-    cola_count    = _last_counts.get("cola",    0)
-    hq_count      = _last_counts.get("hoiquan", 0)
-    kda_count     = _last_counts.get("khandaia",0)
-    vc_count      = _last_counts.get("vongcam", 0)
-    dekiki_count  = _last_counts.get("dekiki",  0)
-    total         = tieulam_count + cola_count + hq_count + kda_count + vc_count + dekiki_count
+    tieulam_count  = _last_counts.get("tieulam",  0)
+    cola_count     = _last_counts.get("cola",     0)
+    phaohoa_count  = _last_counts.get("phaohoa",  0)
+    dekiki_count   = _last_counts.get("dekiki",   0)
+    total          = tieulam_count + cola_count + phaohoa_count + dekiki_count
 
     return (
         "<h2>🎬 IPTV M3U Server</h2>"
@@ -1016,14 +780,12 @@ def index():
         "<li><a href='/live.m3u'>/live.m3u</a> — Tất cả nguồn gộp lại</li>"
         "<li><a href='/tieulam.m3u'>/tieulam.m3u</a> — TieuLam TV only</li>"
         "<li><a href='/cola.m3u'>/cola.m3u</a> — Cola TV only</li>"
-        "<li><a href='/hoiquan.m3u'>/hoiquan.m3u</a> — Hội Quán TV only</li>"
-        "<li><a href='/khandaia.m3u'>/khandaia.m3u</a> — Khán Đài A only</li>"
-        "<li><a href='/vongcam.m3u'>/vongcam.m3u</a> — Vòng Cấm TV only</li>"
+        "<li><a href='/phaohoa.m3u'>/phaohoa.m3u</a> — Pháo Hoa TV only</li>"
         "<li><a href='/dekiki.m3u'>/dekiki.m3u</a> — Kênh TV Việt (dekiki)</li>"
         "</ul>"
         "<h3>📊 Trạng thái</h3>"
         f"<p>📺 Tổng kênh: <strong>{total}</strong>"
-        f" &nbsp;(🏆 Live: {cola_count + hq_count + kda_count + vc_count}"
+        f" &nbsp;(🏆 Live: {cola_count + phaohoa_count}"
         f" | 📡 TV: {tieulam_count + dekiki_count})</p>"
         f"<p>🕐 Cập nhật lần cuối: <strong>{dt_str}</strong></p>"
         f"<p>⏳ Cập nhật tiếp theo: <strong>{next_str}</strong></p>"
@@ -1031,13 +793,8 @@ def index():
         f"&nbsp;|&nbsp; <code>{TINHLAGI_M3U_URL}</code></p>"
         f"<p>🟢 Cola TV: <strong>{cola_count} kênh</strong>"
         f"&nbsp;|&nbsp; <code>{_colatv_api_cache['url']}</code></p>"
-        f"<p>🟢 Hội Quán TV: <strong>{hq_count} kênh</strong>"
-        f"&nbsp;|&nbsp; <code>{_hoiquan_api_cache['url']}</code></p>"
-        f"<p>🟢 Khán Đài A: <strong>{kda_count} kênh</strong>"
-        f"&nbsp;|&nbsp; <code>{_khandaia_api_cache['url']}</code></p>"
-        f"<p>🟢 Vòng Cấm TV: <strong>{vc_count} kênh</strong>"
-        f"&nbsp;|&nbsp; <code>{_vongcam_api_cache['url']}</code>"
-        f"&nbsp;|&nbsp; token: <code>{_vongcam_token_cache['token']}</code></p>"
+        f"<p>🟢 Pháo Hoa TV: <strong>{phaohoa_count} kênh</strong>"
+        f"&nbsp;|&nbsp; <code>{PHAOHOA_API_URL}</code></p>"
         f"<p>📡 Kênh TV (dekiki): <strong>{dekiki_count} kênh</strong></p>"
         f"<p>📻 EPG: <a href='{EPG_URL}' target='_blank'>{EPG_URL}</a></p>"
         f"{err_html}"
@@ -1046,7 +803,7 @@ def index():
         "<li>ETag + HTTP 304 — client có cache không cần tải lại</li>"
         f"<li>Cache-Control: public, max-age={PREFETCH_INTERVAL}s</li>"
         "<li>1 worker process + 8 threads — cache dùng chung, không fetch trùng lặp</li>"
-        "<li>5 nguồn fetch song song (ThreadPoolExecutor)</li>"
+        "<li>4 nguồn fetch song song (ThreadPoolExecutor)</li>"
         f"<li>Làm mới cache mỗi <strong>{PREFETCH_INTERVAL // 60} phút</strong></li>"
         "</ul>"
     )
