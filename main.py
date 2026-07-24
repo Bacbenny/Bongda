@@ -311,8 +311,8 @@ def _fetch_phaohoa_matches() -> list:
     return results
 
 def _phaohoa_is_active(match: dict) -> bool:
-    """Trận hợp lệ nếu chưa kết thúc và có stream URL.
-    Scheduled matches được giữ bất kể thời gian để hiển thị lịch trước giờ bóng."""
+    """Trận hợp lệ nếu chưa kết thúc.
+    Không yêu cầu stream URL — link sẽ lấy theo thời gian thực khi user mở kênh."""
     status = str(match.get("status") or "").lower().strip()
     if status in FINISHED_STATUS_STRINGS:
         return False
@@ -328,16 +328,7 @@ def _phaohoa_is_active(match: dict) -> bool:
                     return False
             except Exception:
                 pass
-    # Phải có ít nhất 1 stream URL
-    has_stream = bool(
-        (match.get("primary_stream_url") or "").strip()
-        or (match.get("backup_stream_url") or "").strip()
-        or any(
-            (c.get("stream_url") or c.get("streamUrl") or "").strip()
-            for c in (match.get("commentators") or [])
-        )
-    )
-    return has_stream
+    return True
 
 def _pick_phaohoa_stream(match: dict) -> tuple:
     """Trả về (stream_url, commentator_name)."""
@@ -366,24 +357,50 @@ def _phaohoa_logo(match: dict) -> str:
         return icon
     return _logo_from_text(match.get("sport_name") or match.get("sport_slug") or "")
 
+def _get_server_base_url() -> str:
+    """Lấy base URL của server để tạo proxy URL tuyệt đối."""
+    render_url = os.environ.get("RENDER_EXTERNAL_URL", "")
+    if render_url:
+        return render_url.rstrip("/")
+    domains = os.environ.get("REPLIT_DOMAINS", "")
+    if domains:
+        return f"https://{domains.split(',')[0].strip()}"
+    app_url = os.environ.get("APP_URL", "")
+    if app_url:
+        return app_url.rstrip("/")
+    return f"http://localhost:{os.environ.get('PORT', 5000)}"
+
+def _fetch_phaohoa_match_by_slug(slug: str) -> dict:
+    """Fetch chi tiết 1 trận theo slug từ API Pháo Hoa."""
+    scraper = cloudscraper.create_scraper()
+    url = PHAOHOA_API_URL.rstrip("/") + "/" + slug + "/"
+    resp = scraper.get(url, headers=_PHAOHOA_HEADERS, timeout=15)
+    resp.raise_for_status()
+    return resp.json()
+
 def _build_phaohoa_lines(matches: list) -> list:
+    """Build M3U lines cho Pháo Hoa TV.
+    Mỗi kênh dùng proxy URL /ph_stream/<slug> — khi user mở kênh,
+    server sẽ fetch link stream thực tế từ API theo thời gian thực.
+    """
     lines = []
-    # Sắp xếp theo start_time
     try:
         matches = sorted(matches, key=lambda m: m.get("start_time") or "")
     except Exception:
         pass
+    base_url = _get_server_base_url()
     for match in matches:
         if not _phaohoa_is_active(match):
             continue
-        stream_url, commentator = _pick_phaohoa_stream(match)
-        if not stream_url:
+        slug = (match.get("slug") or "").strip()
+        if not slug:
             continue
         home       = (match.get("home_team_name") or "Home").strip()
         away       = (match.get("away_team_name") or "Away").strip()
         tournament = (match.get("tournament_name") or "").strip()
         logo       = _phaohoa_logo(match)
         start_str  = match.get("start_time", "")
+        status     = str(match.get("status") or "").lower().strip()
         try:
             dt       = datetime.fromisoformat(start_str)
             dt_vn    = dt.astimezone(VN_TZ)
@@ -392,14 +409,15 @@ def _build_phaohoa_lines(matches: list) -> list:
         except Exception:
             time_str = "--:--"
             date_str = "--/--"
+        _, commentator = _pick_phaohoa_stream(match)
+        status_label = " LIVE" if status == "live" else ""
         if commentator:
-            display = f"{time_str} - {date_str} | {home} VS {away} ({tournament}) | {commentator}"
+            display = f"{time_str} - {date_str} | {home} VS {away} ({tournament}) | {commentator}{status_label}"
         else:
-            display = f"{time_str} - {date_str} | {home} VS {away} ({tournament})"
+            display = f"{time_str} - {date_str} | {home} VS {away} ({tournament}){status_label}"
         lines.append(f'#EXTINF:-1 tvg-logo="{logo}" group-title="Pháo Hoa TV",{display}')
-        _ref = PHAOHOA_FRONTEND_URL.rstrip("/") + "/"
-        _final_url = stream_url + (f"|Referer={_ref}&User-Agent=Mozilla/5.0" if "|" not in stream_url else "")
-        lines.append(_final_url)
+        proxy_url = f"{base_url}/ph_stream/{slug}"
+        lines.append(proxy_url)
     return lines
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -730,6 +748,21 @@ def phaohoa_m3u():
 def dekiki_m3u():
     return _m3u_response("dekiki", "dekiki.m3u")
 
+@app.route("/ph_stream/<path:slug>")
+def ph_stream(slug: str):
+    try:
+        match = _fetch_phaohoa_match_by_slug(slug)
+    except Exception as e:
+        return Response(f"Stream not available: {e}", status=502, mimetype="text/plain")
+    stream_url, _ = _pick_phaohoa_stream(match)
+    if not stream_url:
+        return Response("Stream not available yet — match may not have started.",
+                        status=404, mimetype="text/plain")
+    _ref = PHAOHOA_FRONTEND_URL.rstrip("/") + "/"
+    if "|" not in stream_url:
+        stream_url += f"|Referer={_ref}&User-Agent=Mozilla/5.0"
+    return Response(status=302, headers={"Location": stream_url})
+
 @app.route("/status.json")
 def status_json():
     from flask import jsonify
@@ -811,6 +844,11 @@ def index():
         "<li>1 worker process + 8 threads — cache dùng chung, không fetch trùng lặp</li>"
         "<li>4 nguồn fetch song song (ThreadPoolExecutor)</li>"
         f"<li>Làm mới cache mỗi <strong>{PREFETCH_INTERVAL // 60} phút</strong></li>"
+        "</ul>"
+        "<h3>🔥 Pháo Hoa TV — Real-time Stream</h3><ul>"
+        "<li>Hiển thị tất cả trận theo lịch (scheduled + live)</li>"
+        "<li>Link stream lấy theo thời gian thực khi user mở kênh</li>"
+        "<li>Proxy endpoint: <code>/ph_stream/&lt;slug&gt;</code> — fetch API → 302 redirect</li>"
         "</ul>"
     )
 
