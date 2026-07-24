@@ -286,45 +286,48 @@ _PHAOHOA_HEADERS = {
 }
 
 def _fetch_phaohoa_matches() -> list:
-    """Fetch tất cả trận đang live/sắp diễn ra từ phaohoa1.live.
-    Lấy tối đa 5 trang đầu (100 trận), sort mới nhất trước.
+    """Fetch trận đang live + sắp diễn ra từ phaohoa1.live.
+    Lọc trực tiếp theo status trên server để tránh bị hàng nghìn trận
+    đã kết thúc lấn át các trận scheduled/live có link stream.
     """
     scraper = cloudscraper.create_scraper()
     results = []
-    # ordering=-start_time: trận mới nhất (scheduled/live) lên đầu
     base = PHAOHOA_API_URL.rstrip("/") + "/"
     sep  = "&" if "?" in base else "?"
-    url  = base + sep + "ordering=-start_time"
-    for _ in range(5):  # tối đa 5 trang
-        try:
-            resp = scraper.get(url, headers=_PHAOHOA_HEADERS, timeout=15)
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception:
-            break
-        page_results = data.get("results", [])
-        results.extend(page_results)
-        next_url = data.get("next")
-        if not next_url:
-            break
-        url = next_url
+    for status in ("live", "scheduled"):
+        url = base + sep + f"status={status}&ordering=start_time"
+        for _ in range(5):
+            try:
+                resp = scraper.get(url, headers=_PHAOHOA_HEADERS, timeout=15)
+                resp.raise_for_status()
+                data = resp.json()
+            except Exception:
+                break
+            results.extend(data.get("results", []))
+            next_url = data.get("next")
+            if not next_url:
+                break
+            url = next_url
     return results
 
 def _phaohoa_is_active(match: dict) -> bool:
-    """Trận hợp lệ nếu chưa kết thúc và có stream URL."""
+    """Trận hợp lệ nếu chưa kết thúc và có stream URL.
+    Scheduled matches được giữ bất kể thời gian để hiển thị lịch trước giờ bóng."""
     status = str(match.get("status") or "").lower().strip()
     if status in FINISHED_STATUS_STRINGS:
         return False
-    # Kiểm tra thời gian: bỏ trận đã quá MATCH_MAX_AGE_SECONDS
-    start_str = match.get("start_time", "")
-    if start_str:
-        try:
-            dt      = datetime.fromisoformat(start_str)
-            elapsed = time.time() - dt.timestamp()
-            if elapsed > MATCH_MAX_AGE_SECONDS:
-                return False
-        except Exception:
-            pass
+    # Chỉ áp dụng giới hạn tuổi cho trận đã bắt đầu (live/active),
+    # không cho scheduled sắp diễn ra trong tương lai.
+    if status not in ("scheduled", "upcoming", ""):
+        start_str = match.get("start_time", "")
+        if start_str:
+            try:
+                dt      = datetime.fromisoformat(start_str)
+                elapsed = time.time() - dt.timestamp()
+                if elapsed > MATCH_MAX_AGE_SECONDS:
+                    return False
+            except Exception:
+                pass
     # Phải có ít nhất 1 stream URL
     has_stream = bool(
         (match.get("primary_stream_url") or "").strip()
