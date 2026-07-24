@@ -12,19 +12,9 @@ services:
         value: https://colatv48.live
       - key: COLATV_API
         value: https://api.cltvlv.com/api/matches
-      - key: HOIQUAN_FRONTEND
-        value: https://sv2.hoiquan4.live
-      - key: HOIQUAN_API
-        value: https://sv.hoiquantv.xyz/api/v1/external
-      - key: KHANDAIA_FRONTEND
-        value: https://tructiep.khandaia.link
-      - key: KHANDAIA_API
-        value: https://sv.khandai-a.xyz/api/v1/external
-      - key: VONGCAM_FRONTEND
-        value: https://sv2.vongcam3.live
-      - key: VONGCAM_API
-        value: https://sv.bugiotv.xyz/internal/api/matches
-      - key: VONGCAM_TOKEN
-        value: AB321C
+      - key: PHAOHOA_FRONTEND
+        value: https://phaohoa1.live
+      - key: PHAOHOA_API
+        value: https://phaohoa1.live/api/matches/
       - key: MATCH_MAX_DURATION
         value: "7200"
