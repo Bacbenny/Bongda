@@ -283,14 +283,14 @@ _PHAOHOA_HEADERS = {
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     ),
     "Referer": "https://phaohoa1.live/",
+    "Accept": "application/json",
 }
 
 def _fetch_phaohoa_matches() -> list:
     """Fetch trận đang live + sắp diễn ra từ phaohoa1.live.
-    Lọc trực tiếp theo status trên server để tránh bị hàng nghìn trận
-    đã kết thúc lấn át các trận scheduled/live có link stream.
+    Dùng requests (không cloudscraper) vì API Django REST trả JSON
+    khi có header Accept: application/json.
     """
-    scraper = cloudscraper.create_scraper()
     results = []
     base = PHAOHOA_API_URL.rstrip("/") + "/"
     sep  = "&" if "?" in base else "?"
@@ -298,7 +298,7 @@ def _fetch_phaohoa_matches() -> list:
         url = base + sep + f"status={status}&ordering=start_time"
         for _ in range(5):
             try:
-                resp = scraper.get(url, headers=_PHAOHOA_HEADERS, timeout=15)
+                resp = requests.get(url, headers=_PHAOHOA_HEADERS, timeout=15)
                 resp.raise_for_status()
                 data = resp.json()
             except Exception:
@@ -372,9 +372,8 @@ def _get_server_base_url() -> str:
 
 def _fetch_phaohoa_match_by_slug(slug: str) -> dict:
     """Fetch chi tiết 1 trận theo slug từ API Pháo Hoa."""
-    scraper = cloudscraper.create_scraper()
     url = PHAOHOA_API_URL.rstrip("/") + "/" + slug + "/"
-    resp = scraper.get(url, headers=_PHAOHOA_HEADERS, timeout=15)
+    resp = requests.get(url, headers=_PHAOHOA_HEADERS, timeout=15)
     resp.raise_for_status()
     return resp.json()
 
