@@ -287,11 +287,14 @@ _PHAOHOA_HEADERS = {
 
 def _fetch_phaohoa_matches() -> list:
     """Fetch tất cả trận đang live/sắp diễn ra từ phaohoa1.live.
-    Lấy tối đa 5 trang đầu (500 trận), filter bỏ trận đã kết thúc.
+    Lấy tối đa 5 trang đầu (100 trận), sort mới nhất trước.
     """
     scraper = cloudscraper.create_scraper()
     results = []
-    url = PHAOHOA_API_URL.rstrip("/") + "/"
+    # ordering=-start_time: trận mới nhất (scheduled/live) lên đầu
+    base = PHAOHOA_API_URL.rstrip("/") + "/"
+    sep  = "&" if "?" in base else "?"
+    url  = base + sep + "ordering=-start_time"
     for _ in range(5):  # tối đa 5 trang
         try:
             resp = scraper.get(url, headers=_PHAOHOA_HEADERS, timeout=15)
