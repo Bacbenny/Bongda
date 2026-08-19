@@ -18,7 +18,8 @@ app = Flask(__name__)
 COLATV_FRONTEND_URL   = os.environ.get("COLATV_FRONTEND", "https://colatv48.live")
 COLATV_KNOWN_API_URL  = os.environ.get("COLATV_API",      "https://api.cltvlv.com/api/matches")
 
-
+# ─── Footy Live (live football aggregator) ───────────────────────────────────
+FOOTYLIVE_API_URL      = os.environ.get("FOOTYLIVE_API", "https://footylive.vercel.app/api/matches")
 
 # ─── Pháo Hoa TV config ──────────────────────────────────────────────────────
 PHAOHOA_FRONTEND_URL   = os.environ.get("PHAOHOA_FRONTEND", "https://phaohoa1.live")
@@ -119,10 +120,11 @@ _playlist_cache = {
     "cola":     _empty_entry(),
     "phaohoa":  _empty_entry(),
     "dekiki":   _empty_entry(),
+    "footy":    _empty_entry(),
 }
 
 _last_counts = {
-    "tieulam": 0, "cola": 0, "phaohoa": 0, "dekiki": 0,
+    "tieulam": 0, "cola": 0, "phaohoa": 0, "dekiki": 0, "footy": 0,
     "refreshed_at": 0, "last_error": "",
 }
 
@@ -267,6 +269,48 @@ def _build_colatv_lines(matches: dict) -> list:
             lines.append(f'#EXTINF:-1 tvg-logo="{logo}" group-title="CoLa TV",{display}')
             lines.append(stream_url)
     return lines
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Footy Live — one best stream per match
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _fetch_footylive_matches() -> list:
+    resp = requests.get(FOOTYLIVE_API_URL, timeout=20, headers={"Accept": "application/json", "User-Agent": "Mozilla/5.0"})
+    resp.raise_for_status()
+    return resp.json().get("matches", [])
+
+
+def _footylive_best_source(sources: list) -> dict:
+    """Choose exactly one source: quality first, then API order (server 1 first)."""
+    quality_rank = {"fhd": 3, "1080p": 3, "full hd": 3, "hd": 2, "720p": 2, "sd": 1}
+    available = [x for x in sources if x.get("url")]
+    return max(enumerate(available), key=lambda item: (quality_rank.get(str(item[1].get("quality", "")).lower(), 0), -item[0]))[1] if available else {}
+
+
+def _build_footylive_lines(matches: list) -> list:
+    lines = []
+    for match in matches:
+        if str(match.get("status", "")).lower() not in {"live", "upcoming"}:
+            continue
+        source = _footylive_best_source(match.get("sources", []))
+        if not source:
+            source = _footylive_best_source(match.get("fallbackChannels", []))
+        stream_url = source.get("url", "")
+        if not stream_url:
+            continue
+        timestamp = match.get("timestamp", 0) or 0
+        try:
+            dt = datetime.fromtimestamp(float(timestamp) / 1000, tz=VN_TZ)
+            time_str, date_str = dt.strftime("%H:%M"), dt.strftime("%d/%m")
+        except (TypeError, ValueError, OSError):
+            time_str, date_str = "--:--", "--/--"
+        title = match.get("title", "Football match").strip()
+        tournament = match.get("tournament", "").strip()
+        label = source.get("label") or source.get("name") or "Server 1"
+        display = f"{time_str} - {date_str} | {title} ({tournament}) | {label}"
+        lines.extend([f'#EXTINF:-1 tvg-logo="{SPORT_LOGOS["football"]}" group-title="Footy Live",{display}', stream_url])
+    return lines
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Pháo Hoa TV — fetch từ phaohoa1.live/api/matches (Django REST, không token)
@@ -627,12 +671,16 @@ def _refresh_all_playlists():
     def fetch_dekiki():
         return _fetch_dekiki_lines()
 
+    def fetch_footy():
+        return _build_footylive_lines(_fetch_footylive_matches())
+
     with ThreadPoolExecutor(max_workers=2) as ex:
         futures = {
             ex.submit(fetch_tieulam):  "tieulam",
             ex.submit(fetch_cola):     "cola",
             ex.submit(fetch_phaohoa):  "phaohoa",
             ex.submit(fetch_dekiki):   "dekiki",
+            ex.submit(fetch_footy):    "footy",
         }
         results = {}
         for fut in as_completed(futures):
@@ -647,6 +695,7 @@ def _refresh_all_playlists():
     cola_lines     = results.get("cola",     [])
     phaohoa_lines  = results.get("phaohoa",  [])
     dekiki_lines   = results.get("dekiki",   [])
+    footy_lines    = results.get("footy",    [])
 
     err_str = "; ".join(errors)
 
@@ -661,9 +710,10 @@ def _refresh_all_playlists():
     _store("cola",     epg_header + "\n" + "\n".join(cola_lines))
     _store("phaohoa",  epg_header + "\n" + "\n".join(phaohoa_lines))
     _store("dekiki",   epg_header + "\n" + "\n".join(dekiki_lines))
+    _store("footy",    epg_header + "\n" + "\n".join(footy_lines))
 
     # Combined — Tiếu Lâm TV + live sports first, then static TV channels
-    all_lines = tieulam_lines + cola_lines + phaohoa_lines + dekiki_lines
+    all_lines = tieulam_lines + cola_lines + phaohoa_lines + footy_lines + dekiki_lines
     combined_text = epg_header + "\n" + "\n".join(all_lines)
     if err_str:
         combined_text += f"\n# Errors: {err_str}"
@@ -747,6 +797,10 @@ def phaohoa_m3u():
 def dekiki_m3u():
     return _m3u_response("dekiki", "dekiki.m3u")
 
+@app.route("/footy.m3u")
+def footy_m3u():
+    return _m3u_response("footy", "footy.m3u")
+
 @app.route("/ph_stream/<path:slug>")
 def ph_stream(slug: str):
     try:
@@ -774,7 +828,7 @@ def status_json():
         "next_refresh_in_seconds": next_s,
         "last_error":   _last_counts.get("last_error", ""),
         "channels": {
-            "total":      sum(_last_counts.get(k, 0) for k in ("tieulam","cola","phaohoa","dekiki")),
+            "total":      sum(_last_counts.get(k, 0) for k in ("tieulam","cola","phaohoa","footy","dekiki")),
             "tieulam_tv": _last_counts.get("tieulam", 0),
             "cola_tv":    _last_counts.get("cola",    0),
             "phaohoa_tv": _last_counts.get("phaohoa", 0),
@@ -785,6 +839,7 @@ def status_json():
             "cola_tv":    {"api": _colatv_api_cache.get("url"),  "status": "ok" if _last_counts.get("cola",0)    > 0 else "empty"},
             "phaohoa_tv": {"api": PHAOHOA_API_URL,               "status": "ok" if _last_counts.get("phaohoa",0) > 0 else "empty"},
             "dekiki_tv":  {"api": "github-static",               "status": "ok" if _last_counts.get("dekiki",0)  > 0 else "empty"},
+            "footy_live": {"api": FOOTYLIVE_API_URL,             "status": "ok" if _last_counts.get("footy",0) > 0 else "empty"},
         },
     })
 
@@ -810,7 +865,8 @@ def index():
     cola_count     = _last_counts.get("cola",     0)
     phaohoa_count  = _last_counts.get("phaohoa",  0)
     dekiki_count   = _last_counts.get("dekiki",   0)
-    total          = tieulam_count + cola_count + phaohoa_count + dekiki_count
+    footy_count    = _last_counts.get("footy",    0)
+    total          = tieulam_count + cola_count + phaohoa_count + footy_count + dekiki_count
 
     return (
         "<h2>🎬 IPTV M3U Server</h2>"
@@ -820,6 +876,7 @@ def index():
         "<li><a href='/cola.m3u'>/cola.m3u</a> — Cola TV only</li>"
         "<li><a href='/phaohoa.m3u'>/phaohoa.m3u</a> — Pháo Hoa TV only</li>"
         "<li><a href='/dekiki.m3u'>/dekiki.m3u</a> — Kênh TV Việt (dekiki)</li>"
+        "<li><a href='/footy.m3u'>/footy.m3u</a> — Footy Live (1 stream/trận)</li>"
         "</ul>"
         "<h3>📊 Trạng thái</h3>"
         f"<p>📺 Tổng kênh: <strong>{total}</strong>"
@@ -833,7 +890,8 @@ def index():
         f"&nbsp;|&nbsp; <code>{_colatv_api_cache['url']}</code></p>"
         f"<p>🟢 Pháo Hoa TV: <strong>{phaohoa_count} kênh</strong>"
         f"&nbsp;|&nbsp; <code>{PHAOHOA_API_URL}</code></p>"
-        f"<p>📡 Kênh TV (dekiki): <strong>{dekiki_count} kênh</strong></p>"
+        f"<p>⚽ Footy Live: <strong>{footy_count} trận</strong> — 1 stream tốt nhất/trận</p>"
+         f"<p>📡 Kênh TV (dekiki): <strong>{dekiki_count} kênh</strong></p>"
         f"<p>📻 EPG: <a href='{EPG_URL}' target='_blank'>{EPG_URL}</a></p>"
         f"{err_html}"
         "<h3>⚙️ Tối ưu băng thông</h3><ul>"
