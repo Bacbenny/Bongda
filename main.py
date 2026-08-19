@@ -275,44 +275,76 @@ def _build_colatv_lines(matches: dict) -> list:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _fetch_footylive_matches() -> list:
-    resp = requests.get(FOOTYLIVE_API_URL, timeout=20, headers={"Accept": "application/json", "User-Agent": "Mozilla/5.0"})
-    resp.raise_for_status()
-    return resp.json().get("matches", [])
+        """Fetch a fresh provider response instead of Vercel's stale cached payload."""
+        separator = "&" if "?" in FOOTYLIVE_API_URL else "?"
+        request_url = f"{FOOTYLIVE_API_URL}{separator}_t={time.time_ns()}"
+        resp = requests.get(
+            request_url,
+            timeout=20,
+            headers={
+                "Accept": "application/json",
+                "Cache-Control": "no-cache, no-store",
+                "Pragma": "no-cache",
+                "User-Agent": "Mozilla/5.0",
+            },
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+        if isinstance(payload, list):
+            return payload
+        return payload.get("matches", []) if isinstance(payload, dict) else []
 
 
-def _footylive_best_source(sources: list) -> dict:
-    """Choose exactly one source: quality first, then API order (server 1 first)."""
-    quality_rank = {"fhd": 3, "1080p": 3, "full hd": 3, "hd": 2, "720p": 2, "sd": 1}
-    available = [x for x in sources if x.get("url")]
-    return max(enumerate(available), key=lambda item: (quality_rank.get(str(item[1].get("quality", "")).lower(), 0), -item[0]))[1] if available else {}
+    def _footylive_source_url(source: dict) -> str:
+        """Normalize source URL field names used by different Footy providers."""
+        if not isinstance(source, dict):
+            return ""
+        for key in ("url", "streamUrl", "stream_url", "link", "iframeUrl", "iframe_url", "embedUrl", "embed_url"):
+            value = source.get(key)
+            if isinstance(value, str) and value.strip():
+                return urljoin(FOOTYLIVE_API_URL, value.strip())
+        return ""
 
 
-def _build_footylive_lines(matches: list) -> list:
-    lines = []
-    for match in matches:
-        if str(match.get("status", "")).lower() not in {"live", "upcoming"}:
-            continue
-        source = _footylive_best_source(match.get("sources", []))
-        if not source:
-            source = _footylive_best_source(match.get("fallbackChannels", []))
-        stream_url = source.get("url", "")
-        if not stream_url:
-            continue
-        timestamp = match.get("timestamp", 0) or 0
-        try:
-            dt = datetime.fromtimestamp(float(timestamp) / 1000, tz=VN_TZ)
-            time_str, date_str = dt.strftime("%H:%M"), dt.strftime("%d/%m")
-        except (TypeError, ValueError, OSError):
-            time_str, date_str = "--:--", "--/--"
-        title = match.get("title", "Football match").strip()
-        tournament = match.get("tournament", "").strip()
-        label = source.get("label") or source.get("name") or "Server 1"
-        display = f"{time_str} - {date_str} | {title} ({tournament}) | {label}"
-        lines.extend([f'#EXTINF:-1 tvg-logo="{SPORT_LOGOS["football"]}" group-title="Footy Live",{display}', stream_url])
-    return lines
+    def _footylive_sources(match: dict) -> list:
+        """Return every unique server, preserving the provider's server order."""
+        sources = []
+        seen = set()
+        for source in (match.get("sources") or []) + (match.get("fallbackChannels") or []):
+            url = _footylive_source_url(source)
+            if url and url not in seen:
+                seen.add(url)
+                sources.append((source, url))
+        return sources
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+    def _build_footylive_lines(matches: list) -> list:
+        lines = []
+        for match in matches:
+            if str(match.get("status", "")).lower() not in {"live", "upcoming"}:
+                continue
+            sources = _footylive_sources(match)
+            if not sources:
+                continue
+            timestamp = match.get("timestamp", 0) or 0
+            try:
+                dt = datetime.fromtimestamp(float(timestamp) / 1000, tz=VN_TZ)
+                time_str, date_str = dt.strftime("%H:%M"), dt.strftime("%d/%m")
+            except (TypeError, ValueError, OSError):
+                time_str, date_str = "--:--", "--/--"
+            title = str(match.get("title") or "Football match").strip()
+            tournament = str(match.get("tournament") or "").strip()
+            for source, stream_url in sources:
+                label = source.get("label") or source.get("name") or "Server 1"
+                display = f"{time_str} - {date_str} | {title} ({tournament}) | {label}"
+                lines.extend([
+                    f'#EXTINF:-1 tvg-logo="{SPORT_LOGOS["football"]}" group-title="Footy Live",{display}',
+                    stream_url,
+                ])
+        return lines
+
+
+    # ══════════════════════════════════════════════════════════════════════════════
 #  Pháo Hoa TV — fetch từ phaohoa1.live/api/matches (Django REST, không token)
 #  API  : https://phaohoa1.live/api/matches/?page=N
 #  Schema: {count, next, previous, results: [{id, sport_name, sport_icon_url,
