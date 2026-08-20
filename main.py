@@ -38,7 +38,7 @@ TINHLAGI_M3U_URL = os.environ.get("TINHLAGI_M3U_URL", "https://tinhlagi.pro/s.m3
 # ─── Shared config ────────────────────────────────────────────────────────────
 VN_TZ                = timezone(timedelta(hours=7))
 SELF_PING_INTERVAL   = 240   # seconds
-PREFETCH_INTERVAL    = 1800   # seconds — refresh cache every 30 minutes
+PREFETCH_INTERVAL   = 300    # seconds — refresh cache every 5 minutes
 API_DISCOVERY_TTL    = 3600  # seconds — re-discover API URL every 1 hour
 
 COLATV_FINISHED_STATUS_INT = {3}
@@ -756,6 +756,7 @@ def _refresh_all_playlists():
         "cola":         count(cola_lines),
         "phaohoa":      count(phaohoa_lines),
         "dekiki":       count(dekiki_lines),
+        "footy":        count(footy_lines),
         "refreshed_at": time.time(),
         "last_error":   err_str,
     })
