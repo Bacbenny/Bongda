@@ -37,17 +37,17 @@ TINHLAGI_M3U_URL = os.environ.get("TINHLAGI_M3U_URL", "https://tinhlagi.pro/s.m3
 
 
     # ─── Film4K live events ───────────────────────────────────────────────────────
-    FILM4K_BASE_URL = os.environ.get("FILM4K_BASE_URL", "https://film4k.net").rstrip("/")
-    FILM4K_EMAIL = os.environ.get("FILM4K_USERNAME", "")
-    FILM4K_PASSWORD = os.environ.get("FILM4K_PASSWORD", "")
-    FILM4K_API_TIMEOUT = int(os.environ.get("FILM4K_API_TIMEOUT", 20))
-    FILM4K_EVENT_LOGO = os.environ.get(
-      "FILM4K_EVENT_LOGO",
-      "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f4fa.png",
-    )
-    FILM4K_FINISHED_STATUSES = {"ended", "end", "finished", "complete", "completed"}
+FILM4K_BASE_URL = os.environ.get("FILM4K_BASE_URL", "https://film4k.net").rstrip("/")
+FILM4K_EMAIL = os.environ.get("FILM4K_USERNAME", "")
+FILM4K_PASSWORD = os.environ.get("FILM4K_PASSWORD", "")
+FILM4K_API_TIMEOUT = int(os.environ.get("FILM4K_API_TIMEOUT", 20))
+FILM4K_EVENT_LOGO = os.environ.get(
+  "FILM4K_EVENT_LOGO",
+  "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f4fa.png",
+)
+FILM4K_FINISHED_STATUSES = {"ended", "end", "finished", "complete", "completed"}
 
-    # ─── Shared config ────────────────────────────────────────────────────────────
+# ─── Shared config ────────────────────────────────────────────────────────────
 VN_TZ                = timezone(timedelta(hours=7))
 SELF_PING_INTERVAL   = 240   # seconds
 PREFETCH_INTERVAL   = 300    # seconds — refresh cache every 5 minutes
@@ -698,91 +698,91 @@ def _store(key: str, text: str):
 
     # ══════════════════════════════════════════════════════════════════════════════
     #  Film4K — authenticated live events
-    # ══════════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
 
-    def _film4k_epoch(value):
-      """Convert Film4K seconds or milliseconds to a timezone-aware datetime."""
+def _film4k_epoch(value):
+  """Convert Film4K seconds or milliseconds to a timezone-aware datetime."""
+  try:
+      timestamp = float(value)
+      if timestamp > 100000000000:
+          timestamp /= 1000
+      return datetime.fromtimestamp(timestamp, tz=VN_TZ)
+  except (TypeError, ValueError, OSError, OverflowError):
+      return None
+
+
+def _film4k_event_is_active(event: dict) -> bool:
+  status = str(event.get("status", "")).lower().strip()
+  if status in FILM4K_FINISHED_STATUSES:
+      return False
+  end = _film4k_epoch(event.get("end"))
+  return not end or end.timestamp() >= time.time()
+
+
+def _fetch_film4k_lines() -> list:
+  if not FILM4K_EMAIL or not FILM4K_PASSWORD:
+      raise RuntimeError("FILM4K_USERNAME/FILM4K_PASSWORD are not configured")
+
+  session = requests.Session()
+  session.headers.update({
+      "Accept": "application/json",
+      "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+  })
+  login = session.post(
+      f"{FILM4K_BASE_URL}/api/auth/signin",
+      json={"email": FILM4K_EMAIL, "password": FILM4K_PASSWORD},
+      timeout=FILM4K_API_TIMEOUT,
+  )
+  login.raise_for_status()
+
+  response = session.get(
+      f"{FILM4K_BASE_URL}/api/tv/events",
+      timeout=FILM4K_API_TIMEOUT,
+  )
+  response.raise_for_status()
+  payload = response.json()
+  events = payload if isinstance(payload, list) else payload.get("events", [])
+  if not isinstance(events, list):
+      raise RuntimeError("Film4K events response has an unexpected shape")
+
+  lines = []
+  for event in events:
+      if not isinstance(event, dict) or not _film4k_event_is_active(event):
+          continue
+      event_id = event.get("id") or event.get("eventId")
+      if not event_id:
+          continue
       try:
-          timestamp = float(value)
-          if timestamp > 100000000000:
-              timestamp /= 1000
-          return datetime.fromtimestamp(timestamp, tz=VN_TZ)
-      except (TypeError, ValueError, OSError, OverflowError):
-          return None
-
-
-    def _film4k_event_is_active(event: dict) -> bool:
-      status = str(event.get("status", "")).lower().strip()
-      if status in FILM4K_FINISHED_STATUSES:
-          return False
-      end = _film4k_epoch(event.get("end"))
-      return not end or end.timestamp() >= time.time()
-
-
-    def _fetch_film4k_lines() -> list:
-      if not FILM4K_EMAIL or not FILM4K_PASSWORD:
-          raise RuntimeError("FILM4K_USERNAME/FILM4K_PASSWORD are not configured")
-
-      session = requests.Session()
-      session.headers.update({
-          "Accept": "application/json",
-          "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
-      })
-      login = session.post(
-          f"{FILM4K_BASE_URL}/api/auth/signin",
-          json={"email": FILM4K_EMAIL, "password": FILM4K_PASSWORD},
-          timeout=FILM4K_API_TIMEOUT,
-      )
-      login.raise_for_status()
-
-      response = session.get(
-          f"{FILM4K_BASE_URL}/api/tv/events",
-          timeout=FILM4K_API_TIMEOUT,
-      )
-      response.raise_for_status()
-      payload = response.json()
-      events = payload if isinstance(payload, list) else payload.get("events", [])
-      if not isinstance(events, list):
-          raise RuntimeError("Film4K events response has an unexpected shape")
-
-      lines = []
-      for event in events:
-          if not isinstance(event, dict) or not _film4k_event_is_active(event):
-              continue
-          event_id = event.get("id") or event.get("eventId")
-          if not event_id:
-              continue
-          try:
-              stream = session.get(
-                  f"{FILM4K_BASE_URL}/api/tv/{quote(str(event_id), safe='')}/stream",
-                  timeout=FILM4K_API_TIMEOUT,
-              )
-              stream.raise_for_status()
-              stream_url = stream.json().get("url", "")
-          except (requests.RequestException, ValueError, AttributeError):
-              continue
-          if not stream_url:
-              continue
-
-          title = str(event.get("title") or "Sự kiện trực tiếp").replace('"', "'").strip()
-          status = str(event.get("status") or "").lower().strip()
-          begin = _film4k_epoch(event.get("begin"))
-          end = _film4k_epoch(event.get("end"))
-          if status in {"live", "living", "onair", "on-air"}:
-              state = "TRỰC TIẾP"
-          elif begin:
-              state = f"{begin.strftime('%H:%M %d/%m')}"
-          else:
-              state = "SẮP DIỄN RA"
-          window = f"{state} - {end.strftime('%H:%M') if end else 'đang phát'}"
-          lines.append(
-              f'#EXTINF:-1 tvg-name="{title}" tvg-logo="{FILM4K_EVENT_LOGO}" '
-              f'group-title="Sự Kiện Trực Tiếp",[{window}] {title}'
+          stream = session.get(
+              f"{FILM4K_BASE_URL}/api/tv/{quote(str(event_id), safe='')}/stream",
+              timeout=FILM4K_API_TIMEOUT,
           )
-          lines.append(str(stream_url))
-      return lines
+          stream.raise_for_status()
+          stream_url = stream.json().get("url", "")
+      except (requests.RequestException, ValueError, AttributeError):
+          continue
+      if not stream_url:
+          continue
 
-    # ══════════════════════════════════════════════════════════════════════════════
+      title = str(event.get("title") or "Sự kiện trực tiếp").replace('"', "'").strip()
+      status = str(event.get("status") or "").lower().strip()
+      begin = _film4k_epoch(event.get("begin"))
+      end = _film4k_epoch(event.get("end"))
+      if status in {"live", "living", "onair", "on-air"}:
+          state = "TRỰC TIẾP"
+      elif begin:
+          state = f"{begin.strftime('%H:%M %d/%m')}"
+      else:
+          state = "SẮP DIỄN RA"
+      window = f"{state} - {end.strftime('%H:%M') if end else 'đang phát'}"
+      lines.append(
+          f'#EXTINF:-1 tvg-name="{title}" tvg-logo="{FILM4K_EVENT_LOGO}" '
+          f'group-title="Sự Kiện Trực Tiếp",[{window}] {title}'
+      )
+      lines.append(str(stream_url))
+  return lines
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Background pre-fetch (parallel, 5 sources)
 # ══════════════════════════════════════════════════════════════════════════════
 
