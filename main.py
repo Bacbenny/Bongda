@@ -972,7 +972,7 @@ def status_json():
         "next_refresh_in_seconds": next_s,
         "last_error":   _last_counts.get("last_error", ""),
         "channels": {
-            "total":      sum(_last_counts.get(k, 0) for k in ("tieulam","cola","phaohoa","footy","dekiki")),
+            "total":      sum(_last_counts.get(k, 0) for k in ("tieulam","cola","phaohoa","footy","film4k","dekiki")),
             "tieulam_tv": _last_counts.get("tieulam", 0),
             "cola_tv":    _last_counts.get("cola",    0),
             "phaohoa_tv": _last_counts.get("phaohoa", 0),
