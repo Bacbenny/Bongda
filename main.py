@@ -863,6 +863,7 @@ def _refresh_all_playlists():
         "phaohoa":      count(phaohoa_lines),
         "dekiki":       count(dekiki_lines),
         "footy":        count(footy_lines),
+        "film4k":      count(film4k_lines),
         "refreshed_at": time.time(),
         "last_error":   err_str,
     })
