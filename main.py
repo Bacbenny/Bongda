@@ -35,7 +35,19 @@ EPG_URL = os.environ.get("EPG_URL", "https://vnepg.site/epg.xml")
 # ─── Tiếu Lâm TV (live, nguồn tinhlagi.pro) ──────────────────────────────────
 TINHLAGI_M3U_URL = os.environ.get("TINHLAGI_M3U_URL", "https://tinhlagi.pro/s.m3u")
 
-# ─── Shared config ────────────────────────────────────────────────────────────
+
+    # ─── Film4K live events ───────────────────────────────────────────────────────
+    FILM4K_BASE_URL = os.environ.get("FILM4K_BASE_URL", "https://film4k.net").rstrip("/")
+    FILM4K_EMAIL = os.environ.get("FILM4K_USERNAME", "")
+    FILM4K_PASSWORD = os.environ.get("FILM4K_PASSWORD", "")
+    FILM4K_API_TIMEOUT = int(os.environ.get("FILM4K_API_TIMEOUT", 20))
+    FILM4K_EVENT_LOGO = os.environ.get(
+      "FILM4K_EVENT_LOGO",
+      "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f4fa.png",
+    )
+    FILM4K_FINISHED_STATUSES = {"ended", "end", "finished", "complete", "completed"}
+
+    # ─── Shared config ────────────────────────────────────────────────────────────
 VN_TZ                = timezone(timedelta(hours=7))
 SELF_PING_INTERVAL   = 240   # seconds
 PREFETCH_INTERVAL   = 300    # seconds — refresh cache every 5 minutes
@@ -120,6 +132,7 @@ _playlist_cache = {
     "cola":     _empty_entry(),
     "phaohoa":  _empty_entry(),
     "dekiki":   _empty_entry(),
+    "film4k":   _empty_entry(),
     "footy":    _empty_entry(),
 }
 
@@ -682,7 +695,94 @@ def _store(key: str, text: str):
     with entry["lock"]:
         entry.update(packed)
 
-# ══════════════════════════════════════════════════════════════════════════════
+
+    # ══════════════════════════════════════════════════════════════════════════════
+    #  Film4K — authenticated live events
+    # ══════════════════════════════════════════════════════════════════════════════
+
+    def _film4k_epoch(value):
+      """Convert Film4K seconds or milliseconds to a timezone-aware datetime."""
+      try:
+          timestamp = float(value)
+          if timestamp > 100000000000:
+              timestamp /= 1000
+          return datetime.fromtimestamp(timestamp, tz=VN_TZ)
+      except (TypeError, ValueError, OSError, OverflowError):
+          return None
+
+
+    def _film4k_event_is_active(event: dict) -> bool:
+      status = str(event.get("status", "")).lower().strip()
+      if status in FILM4K_FINISHED_STATUSES:
+          return False
+      end = _film4k_epoch(event.get("end"))
+      return not end or end.timestamp() >= time.time()
+
+
+    def _fetch_film4k_lines() -> list:
+      if not FILM4K_EMAIL or not FILM4K_PASSWORD:
+          raise RuntimeError("FILM4K_USERNAME/FILM4K_PASSWORD are not configured")
+
+      session = requests.Session()
+      session.headers.update({
+          "Accept": "application/json",
+          "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+      })
+      login = session.post(
+          f"{FILM4K_BASE_URL}/api/auth/signin",
+          json={"email": FILM4K_EMAIL, "password": FILM4K_PASSWORD},
+          timeout=FILM4K_API_TIMEOUT,
+      )
+      login.raise_for_status()
+
+      response = session.get(
+          f"{FILM4K_BASE_URL}/api/tv/events",
+          timeout=FILM4K_API_TIMEOUT,
+      )
+      response.raise_for_status()
+      payload = response.json()
+      events = payload if isinstance(payload, list) else payload.get("events", [])
+      if not isinstance(events, list):
+          raise RuntimeError("Film4K events response has an unexpected shape")
+
+      lines = []
+      for event in events:
+          if not isinstance(event, dict) or not _film4k_event_is_active(event):
+              continue
+          event_id = event.get("id") or event.get("eventId")
+          if not event_id:
+              continue
+          try:
+              stream = session.get(
+                  f"{FILM4K_BASE_URL}/api/tv/{quote(str(event_id), safe='')}/stream",
+                  timeout=FILM4K_API_TIMEOUT,
+              )
+              stream.raise_for_status()
+              stream_url = stream.json().get("url", "")
+          except (requests.RequestException, ValueError, AttributeError):
+              continue
+          if not stream_url:
+              continue
+
+          title = str(event.get("title") or "Sự kiện trực tiếp").replace('"', "'").strip()
+          status = str(event.get("status") or "").lower().strip()
+          begin = _film4k_epoch(event.get("begin"))
+          end = _film4k_epoch(event.get("end"))
+          if status in {"live", "living", "onair", "on-air"}:
+              state = "TRỰC TIẾP"
+          elif begin:
+              state = f"{begin.strftime('%H:%M %d/%m')}"
+          else:
+              state = "SẮP DIỄN RA"
+          window = f"{state} - {end.strftime('%H:%M') if end else 'đang phát'}"
+          lines.append(
+              f'#EXTINF:-1 tvg-name="{title}" tvg-logo="{FILM4K_EVENT_LOGO}" '
+              f'group-title="Sự Kiện Trực Tiếp",[{window}] {title}'
+          )
+          lines.append(str(stream_url))
+      return lines
+
+    # ══════════════════════════════════════════════════════════════════════════════
 #  Background pre-fetch (parallel, 5 sources)
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -706,6 +806,9 @@ def _refresh_all_playlists():
     def fetch_footy():
         return _build_footylive_lines(_fetch_footylive_matches())
 
+    def fetch_film4k():
+        return _fetch_film4k_lines()
+
     with ThreadPoolExecutor(max_workers=2) as ex:
         futures = {
             ex.submit(fetch_tieulam):  "tieulam",
@@ -713,6 +816,7 @@ def _refresh_all_playlists():
             ex.submit(fetch_phaohoa):  "phaohoa",
             ex.submit(fetch_dekiki):   "dekiki",
             ex.submit(fetch_footy):    "footy",
+            ex.submit(fetch_film4k):  "film4k",
         }
         results = {}
         for fut in as_completed(futures):
@@ -728,6 +832,7 @@ def _refresh_all_playlists():
     phaohoa_lines  = results.get("phaohoa",  [])
     dekiki_lines   = results.get("dekiki",   [])
     footy_lines    = results.get("footy",    [])
+    film4k_lines  = results.get("film4k",  [])
 
     err_str = "; ".join(errors)
 
@@ -743,9 +848,10 @@ def _refresh_all_playlists():
     _store("phaohoa",  epg_header + "\n" + "\n".join(phaohoa_lines))
     _store("dekiki",   epg_header + "\n" + "\n".join(dekiki_lines))
     _store("footy",    epg_header + "\n" + "\n".join(footy_lines))
+    _store("film4k",  epg_header + "\n" + "\n".join(film4k_lines))
 
     # Combined — Tiếu Lâm TV + live sports first, then static TV channels
-    all_lines = tieulam_lines + cola_lines + phaohoa_lines + footy_lines + dekiki_lines
+    all_lines = tieulam_lines + cola_lines + phaohoa_lines + footy_lines + film4k_lines + dekiki_lines
     combined_text = epg_header + "\n" + "\n".join(all_lines)
     if err_str:
         combined_text += f"\n# Errors: {err_str}"
@@ -830,6 +936,10 @@ def phaohoa_m3u():
 def dekiki_m3u():
     return _m3u_response("dekiki", "dekiki.m3u")
 
+@app.route("/film4k.m3u")
+def film4k_m3u():
+    return _m3u_response("film4k", "film4k.m3u")
+
 @app.route("/footy.m3u")
 def footy_m3u():
     return _m3u_response("footy", "footy.m3u")
@@ -872,6 +982,7 @@ def status_json():
             "cola_tv":    {"api": _colatv_api_cache.get("url"),  "status": "ok" if _last_counts.get("cola",0)    > 0 else "empty"},
             "phaohoa_tv": {"api": PHAOHOA_API_URL,               "status": "ok" if _last_counts.get("phaohoa",0) > 0 else "empty"},
             "dekiki_tv":  {"api": "github-static",               "status": "ok" if _last_counts.get("dekiki",0)  > 0 else "empty"},
+            "film4k": {"api": FILM4K_BASE_URL + "/api/tv/events", "status": "ok" if _last_counts.get("film4k",0) > 0 else "empty"},
             "footy_live": {"api": FOOTYLIVE_API_URL,             "status": "ok" if _last_counts.get("footy",0) > 0 else "empty"},
         },
     })
@@ -899,7 +1010,8 @@ def index():
     phaohoa_count  = _last_counts.get("phaohoa",  0)
     dekiki_count   = _last_counts.get("dekiki",   0)
     footy_count    = _last_counts.get("footy",    0)
-    total          = tieulam_count + cola_count + phaohoa_count + footy_count + dekiki_count
+    film4k_count  = _last_counts.get("film4k",  0)
+    total          = tieulam_count + cola_count + phaohoa_count + footy_count + film4k_count + dekiki_count
 
     return (
         "<h2>🎬 IPTV M3U Server</h2>"
@@ -910,11 +1022,13 @@ def index():
         "<li><a href='/phaohoa.m3u'>/phaohoa.m3u</a> — Pháo Hoa TV only</li>"
         "<li><a href='/dekiki.m3u'>/dekiki.m3u</a> — Kênh TV Việt (dekiki)</li>"
         "<li><a href='/footy.m3u'>/footy.m3u</a> — Footy Live (1 stream/trận)</li>"
+        "<li><a href='/film4k.m3u'>/film4k.m3u</a> — Film4K (Sự Kiện Trực Tiếp)</li>"
         "</ul>"
         "<h3>📊 Trạng thái</h3>"
         f"<p>📺 Tổng kênh: <strong>{total}</strong>"
         f" &nbsp;(🏆 Live: {cola_count + phaohoa_count}"
         f" | 📡 TV: {tieulam_count + dekiki_count})</p>"
+        f"<p>🎬 Film4K: <strong>{film4k_count} sự kiện</strong></p>"
         f"<p>🕐 Cập nhật lần cuối: <strong>{dt_str}</strong></p>"
         f"<p>⏳ Cập nhật tiếp theo: <strong>{next_str}</strong></p>"
         f"<p>🟢 TieuLam TV: <strong>{tieulam_count} kênh</strong>"
@@ -924,6 +1038,7 @@ def index():
         f"<p>🟢 Pháo Hoa TV: <strong>{phaohoa_count} kênh</strong>"
         f"&nbsp;|&nbsp; <code>{PHAOHOA_API_URL}</code></p>"
         f"<p>⚽ Footy Live: <strong>{footy_count} trận</strong> — 1 stream tốt nhất/trận</p>"
+        f"<p>🎬 Film4K: <strong>{film4k_count} sự kiện</strong> — cập nhật theo thời gian thực</p>"
          f"<p>📡 Kênh TV (dekiki): <strong>{dekiki_count} kênh</strong></p>"
         f"<p>📻 EPG: <a href='{EPG_URL}' target='_blank'>{EPG_URL}</a></p>"
         f"{err_html}"
