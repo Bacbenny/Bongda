@@ -36,7 +36,7 @@ EPG_URL = os.environ.get("EPG_URL", "https://vnepg.site/epg.xml")
 TINHLAGI_M3U_URL = os.environ.get("TINHLAGI_M3U_URL", "https://tinhlagi.pro/s.m3u")
 
 
-    # ─── Film4K live events ───────────────────────────────────────────────────────
+# ─── Film4K live events ───────────────────────────────────────────────────────
 FILM4K_BASE_URL = os.environ.get("FILM4K_BASE_URL", "https://film4k.net").rstrip("/")
 FILM4K_EMAIL = os.environ.get("FILM4K_USERNAME", "")
 FILM4K_PASSWORD = os.environ.get("FILM4K_PASSWORD", "")
@@ -288,76 +288,76 @@ def _build_colatv_lines(matches: dict) -> list:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _fetch_footylive_matches() -> list:
-        """Fetch a fresh provider response instead of Vercel's stale cached payload."""
-        separator = "&" if "?" in FOOTYLIVE_API_URL else "?"
-        request_url = f"{FOOTYLIVE_API_URL}{separator}_t={time.time_ns()}"
-        resp = requests.get(
-            request_url,
-            timeout=20,
-            headers={
-                "Accept": "application/json",
-                "Cache-Control": "no-cache, no-store",
-                "Pragma": "no-cache",
-                "User-Agent": "Mozilla/5.0",
-            },
-        )
-        resp.raise_for_status()
-        payload = resp.json()
-        if isinstance(payload, list):
-            return payload
-        return payload.get("matches", []) if isinstance(payload, dict) else []
+    """Fetch a fresh provider response instead of Vercel's stale cached payload."""
+    separator = "&" if "?" in FOOTYLIVE_API_URL else "?"
+    request_url = f"{FOOTYLIVE_API_URL}{separator}_t={time.time_ns()}"
+    resp = requests.get(
+        request_url,
+        timeout=20,
+        headers={
+            "Accept": "application/json",
+            "Cache-Control": "no-cache, no-store",
+            "Pragma": "no-cache",
+            "User-Agent": "Mozilla/5.0",
+        },
+    )
+    resp.raise_for_status()
+    payload = resp.json()
+    if isinstance(payload, list):
+        return payload
+    return payload.get("matches", []) if isinstance(payload, dict) else []
 
 
-    def _footylive_source_url(source: dict) -> str:
-        """Normalize source URL field names used by different Footy providers."""
-        if not isinstance(source, dict):
-            return ""
-        for key in ("url", "streamUrl", "stream_url", "link", "iframeUrl", "iframe_url", "embedUrl", "embed_url"):
-            value = source.get(key)
-            if isinstance(value, str) and value.strip():
-                return urljoin(FOOTYLIVE_API_URL, value.strip())
+def _footylive_source_url(source: dict) -> str:
+    """Normalize source URL field names used by different Footy providers."""
+    if not isinstance(source, dict):
         return ""
+    for key in ("url", "streamUrl", "stream_url", "link", "iframeUrl", "iframe_url", "embedUrl", "embed_url"):
+        value = source.get(key)
+        if isinstance(value, str) and value.strip():
+            return urljoin(FOOTYLIVE_API_URL, value.strip())
+    return ""
 
 
-    def _footylive_sources(match: dict) -> list:
-        """Return every unique server, preserving the provider's server order."""
-        sources = []
-        seen = set()
-        for source in (match.get("sources") or []) + (match.get("fallbackChannels") or []):
-            url = _footylive_source_url(source)
-            if url and url not in seen:
-                seen.add(url)
-                sources.append((source, url))
-        return sources
+def _footylive_sources(match: dict) -> list:
+    """Return every unique server, preserving the provider's server order."""
+    sources = []
+    seen = set()
+    for source in (match.get("sources") or []) + (match.get("fallbackChannels") or []):
+        url = _footylive_source_url(source)
+        if url and url not in seen:
+            seen.add(url)
+            sources.append((source, url))
+    return sources
 
 
-    def _build_footylive_lines(matches: list) -> list:
-        lines = []
-        for match in matches:
-            if str(match.get("status", "")).lower() not in {"live", "upcoming"}:
-                continue
-            sources = _footylive_sources(match)
-            if not sources:
-                continue
-            timestamp = match.get("timestamp", 0) or 0
-            try:
-                dt = datetime.fromtimestamp(float(timestamp) / 1000, tz=VN_TZ)
-                time_str, date_str = dt.strftime("%H:%M"), dt.strftime("%d/%m")
-            except (TypeError, ValueError, OSError):
-                time_str, date_str = "--:--", "--/--"
-            title = str(match.get("title") or "Football match").strip()
-            tournament = str(match.get("tournament") or "").strip()
-            for source, stream_url in sources:
-                label = source.get("label") or source.get("name") or "Server 1"
-                display = f"{time_str} - {date_str} | {title} ({tournament}) | {label}"
-                lines.extend([
-                    f'#EXTINF:-1 tvg-logo="{SPORT_LOGOS["football"]}" group-title="Footy Live",{display}',
-                    stream_url,
-                ])
-        return lines
+def _build_footylive_lines(matches: list) -> list:
+    lines = []
+    for match in matches:
+        if str(match.get("status", "")).lower() not in {"live", "upcoming"}:
+            continue
+        sources = _footylive_sources(match)
+        if not sources:
+            continue
+        timestamp = match.get("timestamp", 0) or 0
+        try:
+            dt = datetime.fromtimestamp(float(timestamp) / 1000, tz=VN_TZ)
+            time_str, date_str = dt.strftime("%H:%M"), dt.strftime("%d/%m")
+        except (TypeError, ValueError, OSError):
+            time_str, date_str = "--:--", "--/--"
+        title = str(match.get("title") or "Football match").strip()
+        tournament = str(match.get("tournament") or "").strip()
+        for source, stream_url in sources:
+            label = source.get("label") or source.get("name") or "Server 1"
+            display = f"{time_str} - {date_str} | {title} ({tournament}) | {label}"
+            lines.extend([
+                f'#EXTINF:-1 tvg-logo="{SPORT_LOGOS["football"]}" group-title="Footy Live",{display}',
+                stream_url,
+            ])
+    return lines
 
 
-    # ══════════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
 #  Pháo Hoa TV — fetch từ phaohoa1.live/api/matches (Django REST, không token)
 #  API  : https://phaohoa1.live/api/matches/?page=N
 #  Schema: {count, next, previous, results: [{id, sport_name, sport_icon_url,
