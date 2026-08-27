@@ -18,9 +18,6 @@ app = Flask(__name__)
 COLATV_FRONTEND_URL   = os.environ.get("COLATV_FRONTEND", "https://colatv48.live")
 COLATV_KNOWN_API_URL  = os.environ.get("COLATV_API",      "https://api.cltvlv.com/api/matches")
 
-# ─── Footy Live (live football aggregator) ───────────────────────────────────
-FOOTYLIVE_API_URL      = os.environ.get("FOOTYLIVE_API", "https://footylive.vercel.app/api/matches")
-
 # ─── Pháo Hoa TV config ──────────────────────────────────────────────────────
 PHAOHOA_FRONTEND_URL   = os.environ.get("PHAOHOA_FRONTEND", "https://phaohoa1.live")
 PHAOHOA_API_URL        = os.environ.get("PHAOHOA_API",      "https://phaohoa1.live/api/matches/")
@@ -32,9 +29,11 @@ DEKIKI_M3U_URL = os.environ.get(
 )
 EPG_URL = os.environ.get("EPG_URL", "https://vnepg.site/epg.xml")
 
-# ─── Tiếu Lâm TV (live, nguồn tinhlagi.pro) ──────────────────────────────────
-TINHLAGI_M3U_URL = os.environ.get("TINHLAGI_M3U_URL", "https://tinhlagi.pro/s.m3u")
-
+# ─── Stalker2M3U (GitHub-hosted live schedule, deduplicated) ──────────────────
+STALKER_M3U_URL = os.environ.get(
+    "STALKER_M3U_URL",
+    "https://raw.githubusercontent.com/Love4vn/Stalker2M3U/refs/heads/1/live_schedule_Optimize.m3u",
+)
 
 # ─── Film4K live events ───────────────────────────────────────────────────────
 FILM4K_BASE_URL = os.environ.get("FILM4K_BASE_URL", "https://film4k.net").rstrip("/")
@@ -128,16 +127,15 @@ def _empty_entry():
 
 _playlist_cache = {
     "combined": _empty_entry(),
-    "tieulam":  _empty_entry(),
+    "stalker":  _empty_entry(),
     "cola":     _empty_entry(),
     "phaohoa":  _empty_entry(),
     "dekiki":   _empty_entry(),
     "film4k":   _empty_entry(),
-    "footy":    _empty_entry(),
 }
 
 _last_counts = {
-    "tieulam": 0, "cola": 0, "phaohoa": 0, "dekiki": 0, "footy": 0,
+    "stalker": 0, "cola": 0, "phaohoa": 0, "dekiki": 0,
     "refreshed_at": 0, "last_error": "",
 }
 
@@ -282,80 +280,6 @@ def _build_colatv_lines(matches: dict) -> list:
             lines.append(f'#EXTINF:-1 tvg-logo="{logo}" group-title="CoLa TV",{display}')
             lines.append(stream_url)
     return lines
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  Footy Live — one best stream per match
-# ══════════════════════════════════════════════════════════════════════════════
-
-def _fetch_footylive_matches() -> list:
-    """Fetch a fresh provider response instead of Vercel's stale cached payload."""
-    separator = "&" if "?" in FOOTYLIVE_API_URL else "?"
-    request_url = f"{FOOTYLIVE_API_URL}{separator}_t={time.time_ns()}"
-    resp = requests.get(
-        request_url,
-        timeout=20,
-        headers={
-            "Accept": "application/json",
-            "Cache-Control": "no-cache, no-store",
-            "Pragma": "no-cache",
-            "User-Agent": "Mozilla/5.0",
-        },
-    )
-    resp.raise_for_status()
-    payload = resp.json()
-    if isinstance(payload, list):
-        return payload
-    return payload.get("matches", []) if isinstance(payload, dict) else []
-
-
-def _footylive_source_url(source: dict) -> str:
-    """Normalize source URL field names used by different Footy providers."""
-    if not isinstance(source, dict):
-        return ""
-    for key in ("url", "streamUrl", "stream_url", "link", "iframeUrl", "iframe_url", "embedUrl", "embed_url"):
-        value = source.get(key)
-        if isinstance(value, str) and value.strip():
-            return urljoin(FOOTYLIVE_API_URL, value.strip())
-    return ""
-
-
-def _footylive_sources(match: dict) -> list:
-    """Return every unique server, preserving the provider's server order."""
-    sources = []
-    seen = set()
-    for source in (match.get("sources") or []) + (match.get("fallbackChannels") or []):
-        url = _footylive_source_url(source)
-        if url and url not in seen:
-            seen.add(url)
-            sources.append((source, url))
-    return sources
-
-
-def _build_footylive_lines(matches: list) -> list:
-    lines = []
-    for match in matches:
-        if str(match.get("status", "")).lower() not in {"live", "upcoming"}:
-            continue
-        sources = _footylive_sources(match)
-        if not sources:
-            continue
-        timestamp = match.get("timestamp", 0) or 0
-        try:
-            dt = datetime.fromtimestamp(float(timestamp) / 1000, tz=VN_TZ)
-            time_str, date_str = dt.strftime("%H:%M"), dt.strftime("%d/%m")
-        except (TypeError, ValueError, OSError):
-            time_str, date_str = "--:--", "--/--"
-        title = str(match.get("title") or "Football match").strip()
-        tournament = str(match.get("tournament") or "").strip()
-        for source, stream_url in sources:
-            label = source.get("label") or source.get("name") or "Server 1"
-            display = f"{time_str} - {date_str} | {title} ({tournament}) | {label}"
-            lines.extend([
-                f'#EXTINF:-1 tvg-logo="{SPORT_LOGOS["football"]}" group-title="Footy Live",{display}',
-                stream_url,
-            ])
-    return lines
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Pháo Hoa TV — fetch từ phaohoa1.live/api/matches (Django REST, không token)
@@ -509,92 +433,53 @@ def _build_phaohoa_lines(matches: list) -> list:
     return lines
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  Dekiki — static GitHub M3U fetch + parse
+#  Stalker2M3U — GitHub-hosted live schedule (deduplicated, 1 stream per program)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _parse_tinhlagi_tieulam() -> list:
-    """Fetch tinhlagi.pro's public M3U and extract only the Tiếu Lâm TV group,
-    excluding (HD2) duplicate-quality entries and (Nhà đài) entries."""
-    resp = requests.get(TINHLAGI_M3U_URL, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
+def _fetch_stalker_lines() -> list:
+    """Download the Stalker2M3U playlist, deduplicate by program name,
+    and keep only the first stream source for each unique program."""
+    resp = requests.get(STALKER_M3U_URL, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
     resp.raise_for_status()
-    lines = resp.text.splitlines()
-    channels = []
+    raw_lines = resp.text.splitlines()
+
+    # Parse M3U into entries: each entry = (extinf_line, [extra directives], url)
+    entries = []
     i = 0
-    while i < len(lines):
-        line = lines[i]
+    while i < len(raw_lines):
+        line = raw_lines[i]
         if line.startswith("#EXTINF"):
-            m_group = re.search(r'group-title="([^"]*)"', line)
-            group = m_group.group(1) if m_group else ""
-            if "TIẾU LÂM" in group.upper():
-                m_logo = re.search(r'tvg-logo="([^"]*)"', line)
-                logo = m_logo.group(1) if m_logo else ""
-                comma_idx = line.find(",")
-                title = line[comma_idx + 1:].strip() if comma_idx >= 0 else ""
-                referrer = ""
-                url = ""
-                j = i + 1
-                while j < len(lines) and not lines[j].startswith("#EXTINF") and lines[j].strip() != "":
-                    l2 = lines[j]
-                    if l2.startswith("#EXTVLCOPT:http-referrer="):
-                        referrer = l2.split("=", 1)[1].strip()
-                    elif not l2.startswith("#"):
-                        url = l2.strip()
-                    j += 1
-                if url:
-                    title_upper = title.upper()
-                    if "(HD2)" not in title_upper and "NHÀ ĐÀI" not in title_upper:
-                        channels.append({"title": title, "logo": logo, "referrer": referrer, "url": url})
-                i = j
-                continue
-        i += 1
-    return channels
-
-
-_TIEULAM_TITLE_RE = re.compile(
-    r'^(?P<time>\d{1,2}:\d{2})\s+(?P<date>\d{1,2}/\d{1,2})\s+'
-    r'(?P<home>.+?)\s+vs\s+(?P<away>.+?)\s*'
-    r'(?:\((?P<blv>[^)]*)\))?\s*(?:\[geo\])?$',
-    re.IGNORECASE,
-)
-
-
-def _format_tieulam_title(title: str) -> str:
-    """Chuẩn hoá tiêu đề Tiếu Lâm TV theo định dạng dùng dấu gạch ngang/gạch đứng
-    giống Pháo Hoa TV: 'HH:MM - DD/MM | Home VS Away | BLV ...',
-    đồng thời bỏ thẻ [geo]."""
-    m = _TIEULAM_TITLE_RE.match(title.strip())
-    if not m:
-        return re.sub(r'\s*\[geo\]\s*', '', title, flags=re.IGNORECASE).strip()
-    time_str = m.group("time")
-    date_str = m.group("date")
-    home     = m.group("home").strip()
-    away     = m.group("away").strip()
-    blv      = (m.group("blv") or "").strip()
-    formatted = f"{time_str} - {date_str} | {home} VS {away}"
-    if blv:
-        formatted += f" | {blv}"
-    return formatted
-
-
-def _build_tieulam_lines_from_channels(channels: list) -> list:
-    lines = []
-    for ch in channels:
-        raw_title = ch.get("title", "")
-        url       = ch.get("url", "")
-        if not raw_title or not url:
+            extinf_line = line
+            directives = []
+            url = ""
+            j = i + 1
+            while j < len(raw_lines) and not raw_lines[j].startswith("#EXTINF") and raw_lines[j].strip() != "":
+                l2 = raw_lines[j]
+                if l2.startswith("#"):
+                    directives.append(l2)
+                else:
+                    url = l2.strip()
+                j += 1
+            if url:
+                entries.append((extinf_line, directives, url))
+            i = j
             continue
-        title = _format_tieulam_title(raw_title)
-        logo  = _logo_from_text(title)
-        lines.append(f'#EXTINF:-1 tvg-logo="{logo}" group-title="TieuLam TV",{title}')
-        referrer = ch.get("referrer", "")
-        if referrer:
-            lines.append(f"#EXTVLCOPT:http-referrer={referrer}")
+        i += 1
+
+    # Deduplicate by program name (text after the comma in #EXTINF),
+    # keeping only the first stream source for each unique program.
+    seen_names = set()
+    lines = []
+    for extinf_line, directives, url in entries:
+        comma_idx = extinf_line.find(",")
+        program_name = extinf_line[comma_idx + 1:].strip().lower() if comma_idx >= 0 else extinf_line.lower()
+        if program_name in seen_names:
+            continue
+        seen_names.add(program_name)
+        lines.append(extinf_line)
+        lines.extend(directives)
         lines.append(url)
     return lines
-
-
-def _fetch_tieulam_lines() -> list:
-    return _build_tieulam_lines_from_channels(_parse_tinhlagi_tieulam())
 
 
 def _fetch_dekiki_lines() -> list:
@@ -783,7 +668,7 @@ def _fetch_film4k_lines() -> list:
   return lines
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  Background pre-fetch (parallel, 5 sources)
+#  Background pre-fetch (parallel sources)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _refresh_all_playlists():
@@ -791,8 +676,8 @@ def _refresh_all_playlists():
     _resolve_all_frontends()
     errors = []
 
-    def fetch_tieulam():
-        return _fetch_tieulam_lines()
+    def fetch_stalker():
+        return _fetch_stalker_lines()
 
     def fetch_cola():
         return _build_colatv_lines(_fetch_colatv_matches())
@@ -803,19 +688,15 @@ def _refresh_all_playlists():
     def fetch_dekiki():
         return _fetch_dekiki_lines()
 
-    def fetch_footy():
-        return _build_footylive_lines(_fetch_footylive_matches())
-
     def fetch_film4k():
         return _fetch_film4k_lines()
 
     with ThreadPoolExecutor(max_workers=2) as ex:
         futures = {
-            ex.submit(fetch_tieulam):  "tieulam",
+            ex.submit(fetch_stalker):  "stalker",
             ex.submit(fetch_cola):     "cola",
             ex.submit(fetch_phaohoa):  "phaohoa",
             ex.submit(fetch_dekiki):   "dekiki",
-            ex.submit(fetch_footy):    "footy",
             ex.submit(fetch_film4k):  "film4k",
         }
         results = {}
@@ -827,12 +708,11 @@ def _refresh_all_playlists():
                 results[key] = []
                 errors.append(f"{key}: {e}")
 
-    tieulam_lines  = results.get("tieulam",  [])
-    cola_lines     = results.get("cola",     [])
-    phaohoa_lines  = results.get("phaohoa",  [])
-    dekiki_lines   = results.get("dekiki",   [])
-    footy_lines    = results.get("footy",    [])
-    film4k_lines  = results.get("film4k",  [])
+    stalker_lines   = results.get("stalker",   [])
+    cola_lines      = results.get("cola",      [])
+    phaohoa_lines   = results.get("phaohoa",   [])
+    dekiki_lines    = results.get("dekiki",    [])
+    film4k_lines    = results.get("film4k",    [])
 
     err_str = "; ".join(errors)
 
@@ -843,27 +723,25 @@ def _refresh_all_playlists():
     epg_header = f'#EXTM3U url-tvg="{EPG_URL}" x-tvg-url="{EPG_URL}"'
 
     # Build + store individual playlists
-    _store("tieulam",  epg_header + "\n" + "\n".join(tieulam_lines))
-    _store("cola",     epg_header + "\n" + "\n".join(cola_lines))
-    _store("phaohoa",  epg_header + "\n" + "\n".join(phaohoa_lines))
-    _store("dekiki",   epg_header + "\n" + "\n".join(dekiki_lines))
-    _store("footy",    epg_header + "\n" + "\n".join(footy_lines))
-    _store("film4k",  epg_header + "\n" + "\n".join(film4k_lines))
+    _store("stalker",   epg_header + "\n" + "\n".join(stalker_lines))
+    _store("cola",      epg_header + "\n" + "\n".join(cola_lines))
+    _store("phaohoa",   epg_header + "\n" + "\n".join(phaohoa_lines))
+    _store("dekiki",    epg_header + "\n" + "\n".join(dekiki_lines))
+    _store("film4k",    epg_header + "\n" + "\n".join(film4k_lines))
 
-    # Combined — Tiếu Lâm TV + live sports first, then static TV channels
-    all_lines = tieulam_lines + cola_lines + phaohoa_lines + footy_lines + film4k_lines + dekiki_lines
+    # Combined — Stalker2M3U + live sports first, then static TV channels
+    all_lines = stalker_lines + cola_lines + phaohoa_lines + film4k_lines + dekiki_lines
     combined_text = epg_header + "\n" + "\n".join(all_lines)
     if err_str:
         combined_text += f"\n# Errors: {err_str}"
     _store("combined", combined_text)
 
     _last_counts.update({
-        "tieulam":      count(tieulam_lines),
+        "stalker":      count(stalker_lines),
         "cola":         count(cola_lines),
         "phaohoa":      count(phaohoa_lines),
         "dekiki":       count(dekiki_lines),
-        "footy":        count(footy_lines),
-        "film4k":      count(film4k_lines),
+        "film4k":       count(film4k_lines),
         "refreshed_at": time.time(),
         "last_error":   err_str,
     })
@@ -921,9 +799,9 @@ def _m3u_response(key: str, filename: str) -> Response:
 def live_m3u():
     return _m3u_response("combined", "live.m3u")
 
-@app.route("/tieulam.m3u")
-def tieulam_m3u():
-    return _m3u_response("tieulam", "tieulam.m3u")
+@app.route("/stalker.m3u")
+def stalker_m3u():
+    return _m3u_response("stalker", "stalker.m3u")
 
 @app.route("/cola.m3u")
 def cola_m3u():
@@ -940,10 +818,6 @@ def dekiki_m3u():
 @app.route("/film4k.m3u")
 def film4k_m3u():
     return _m3u_response("film4k", "film4k.m3u")
-
-@app.route("/footy.m3u")
-def footy_m3u():
-    return _m3u_response("footy", "footy.m3u")
 
 @app.route("/ph_stream/<path:slug>")
 def ph_stream(slug: str):
@@ -972,19 +846,18 @@ def status_json():
         "next_refresh_in_seconds": next_s,
         "last_error":   _last_counts.get("last_error", ""),
         "channels": {
-            "total":      sum(_last_counts.get(k, 0) for k in ("tieulam","cola","phaohoa","footy","film4k","dekiki")),
-            "tieulam_tv": _last_counts.get("tieulam", 0),
+            "total":      sum(_last_counts.get(k, 0) for k in ("stalker","cola","phaohoa","film4k","dekiki")),
+            "stalker":    _last_counts.get("stalker", 0),
             "cola_tv":    _last_counts.get("cola",    0),
             "phaohoa_tv": _last_counts.get("phaohoa", 0),
             "dekiki_tv":  _last_counts.get("dekiki",  0),
         },
         "sources": {
-            "tieulam_tv": {"api": TINHLAGI_M3U_URL,              "status": "ok" if _last_counts.get("tieulam",0) > 0 else "empty"},
+            "stalker":    {"api": STALKER_M3U_URL,                "status": "ok" if _last_counts.get("stalker",0) > 0 else "empty"},
             "cola_tv":    {"api": _colatv_api_cache.get("url"),  "status": "ok" if _last_counts.get("cola",0)    > 0 else "empty"},
             "phaohoa_tv": {"api": PHAOHOA_API_URL,               "status": "ok" if _last_counts.get("phaohoa",0) > 0 else "empty"},
             "dekiki_tv":  {"api": "github-static",               "status": "ok" if _last_counts.get("dekiki",0)  > 0 else "empty"},
-            "film4k": {"api": FILM4K_BASE_URL + "/api/tv/events", "status": "ok" if _last_counts.get("film4k",0) > 0 else "empty"},
-            "footy_live": {"api": FOOTYLIVE_API_URL,             "status": "ok" if _last_counts.get("footy",0) > 0 else "empty"},
+            "film4k":     {"api": FILM4K_BASE_URL + "/api/tv/events", "status": "ok" if _last_counts.get("film4k",0) > 0 else "empty"},
         },
     })
 
@@ -1006,39 +879,36 @@ def index():
     err      = _last_counts.get("last_error", "")
     err_html = f'<p style="color:red">⚠️ {err}</p>' if err else ""
 
-    tieulam_count  = _last_counts.get("tieulam",  0)
-    cola_count     = _last_counts.get("cola",     0)
-    phaohoa_count  = _last_counts.get("phaohoa",  0)
-    dekiki_count   = _last_counts.get("dekiki",   0)
-    footy_count    = _last_counts.get("footy",    0)
-    film4k_count  = _last_counts.get("film4k",  0)
-    total          = tieulam_count + cola_count + phaohoa_count + footy_count + film4k_count + dekiki_count
+    stalker_count  = _last_counts.get("stalker",   0)
+    cola_count     = _last_counts.get("cola",      0)
+    phaohoa_count  = _last_counts.get("phaohoa",   0)
+    dekiki_count   = _last_counts.get("dekiki",    0)
+    film4k_count   = _last_counts.get("film4k",    0)
+    total          = stalker_count + cola_count + phaohoa_count + film4k_count + dekiki_count
 
     return (
         "<h2>🎬 IPTV M3U Server</h2>"
         "<h3>📋 Playlist</h3><ul>"
         "<li><a href='/live.m3u'>/live.m3u</a> — Tất cả nguồn gộp lại</li>"
-        "<li><a href='/tieulam.m3u'>/tieulam.m3u</a> — TieuLam TV only</li>"
+        "<li><a href='/stalker.m3u'>/stalker.m3u</a> — Stalker2M3U (đã lọc trùng, 1 nguồn/kênh)</li>"
         "<li><a href='/cola.m3u'>/cola.m3u</a> — Cola TV only</li>"
         "<li><a href='/phaohoa.m3u'>/phaohoa.m3u</a> — Pháo Hoa TV only</li>"
         "<li><a href='/dekiki.m3u'>/dekiki.m3u</a> — Kênh TV Việt (dekiki)</li>"
-        "<li><a href='/footy.m3u'>/footy.m3u</a> — Footy Live (1 stream/trận)</li>"
         "<li><a href='/film4k.m3u'>/film4k.m3u</a> — Film4K (Sự Kiện Trực Tiếp)</li>"
         "</ul>"
         "<h3>📊 Trạng thái</h3>"
         f"<p>📺 Tổng kênh: <strong>{total}</strong>"
         f" &nbsp;(🏆 Live: {cola_count + phaohoa_count}"
-        f" | 📡 TV: {tieulam_count + dekiki_count})</p>"
+        f" | 📡 TV: {stalker_count + dekiki_count})</p>"
         f"<p>🎬 Film4K: <strong>{film4k_count} sự kiện</strong></p>"
         f"<p>🕐 Cập nhật lần cuối: <strong>{dt_str}</strong></p>"
         f"<p>⏳ Cập nhật tiếp theo: <strong>{next_str}</strong></p>"
-        f"<p>🟢 TieuLam TV: <strong>{tieulam_count} kênh</strong>"
-        f"&nbsp;|&nbsp; <code>{TINHLAGI_M3U_URL}</code></p>"
+        f"<p>🟢 Stalker2M3U: <strong>{stalker_count} kênh</strong>"
+        f"&nbsp;|&nbsp; <code>{STALKER_M3U_URL}</code></p>"
         f"<p>🟢 Cola TV: <strong>{cola_count} kênh</strong>"
         f"&nbsp;|&nbsp; <code>{_colatv_api_cache['url']}</code></p>"
         f"<p>🟢 Pháo Hoa TV: <strong>{phaohoa_count} kênh</strong>"
         f"&nbsp;|&nbsp; <code>{PHAOHOA_API_URL}</code></p>"
-        f"<p>⚽ Footy Live: <strong>{footy_count} trận</strong> — 1 stream tốt nhất/trận</p>"
         f"<p>🎬 Film4K: <strong>{film4k_count} sự kiện</strong> — cập nhật theo thời gian thực</p>"
          f"<p>📡 Kênh TV (dekiki): <strong>{dekiki_count} kênh</strong></p>"
         f"<p>📻 EPG: <a href='{EPG_URL}' target='_blank'>{EPG_URL}</a></p>"
@@ -1048,7 +918,7 @@ def index():
         "<li>ETag + HTTP 304 — client có cache không cần tải lại</li>"
         f"<li>Cache-Control: public, max-age={PREFETCH_INTERVAL}s</li>"
         "<li>1 worker process + 8 threads — cache dùng chung, không fetch trùng lặp</li>"
-        "<li>4 nguồn fetch song song (ThreadPoolExecutor)</li>"
+        "<li>Các nguồn fetch song song (ThreadPoolExecutor)</li>"
         f"<li>Làm mới cache mỗi <strong>{PREFETCH_INTERVAL // 60} phút</strong></li>"
         "</ul>"
         "<h3>🔥 Pháo Hoa TV — Real-time Stream</h3><ul>"
