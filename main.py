@@ -466,20 +466,43 @@ def _fetch_stalker_lines() -> list:
             continue
         i += 1
 
-    # Deduplicate by program name (text after the comma in #EXTINF),
-    # keeping only the first stream source for each unique program.
+    # Deduplicate by normalized program name, keeping only the first stream
+    # source for each unique program. Normalization strips quality/source
+    # suffixes like (HD), (FHD), [Server 1], | BLV, etc. so that the same
+    # program coming from multiple sources only appears once.
     seen_names = set()
     lines = []
     for extinf_line, directives, url in entries:
         comma_idx = extinf_line.find(",")
-        program_name = extinf_line[comma_idx + 1:].strip().lower() if comma_idx >= 0 else extinf_line.lower()
-        if program_name in seen_names:
+        raw_name = extinf_line[comma_idx + 1:].strip() if comma_idx >= 0 else extinf_line.strip()
+        normalized = _normalize_program_name(raw_name)
+        if normalized in seen_names:
             continue
-        seen_names.add(program_name)
+        seen_names.add(normalized)
         lines.append(extinf_line)
         lines.extend(directives)
         lines.append(url)
     return lines
+
+
+def _normalize_program_name(name: str) -> str:
+    """Chu\u1ea9n ho\u00e1 t\u00ean ch\u01b0\u01a1ng tr\u00ecnh \u0111\u1ec3 so kh\u1edbp tr\u00f9ng l\u1eb7p.
+    B\u1ecf h\u1eadu t\u1ed1 ch\u1ea5t l\u01b0\u1ee3ng/ngu\u1ed3n: (HD), (FHD), (SD), [Server 1], | BLV Name,
+    d\u1ea5u g\u1ea1ch ngang ngu\u1ed3n, v.v. Chuy\u1ec3n v\u1ec1 ch\u1eef th\u01b0\u1eddng v\u00e0 b\u1ecf kho\u1ea3ng tr\u1eafng th\u1eeba."""
+    n = name.lower()
+    # B\u1ecf th\u1ebb trong ngo\u1eb7c vu\u00f4ng [...] (vd: [Server 1], [Ngu\u1ed3n 2])
+    n = re.sub(r'\s*\[[^\]]*\]\s*', ' ', n)
+    # B\u1ecf th\u1ebb trong ngo\u1eb7c \u0111\u01a1n [...] n\u1ebfu n\u1eb1m \u1edf cu\u1ed1i v\u00e0 l\u00e0 ch\u1ea5t l\u01b0\u1ee3ng/ngu\u1ed3n
+    n = re.sub(r'\s*\((?:hd|fhd|sd|4k|1080p|720p|server\s*\d+|ngu\u1ed3n\s*\d+)\)\s*$', '', n, flags=re.IGNORECASE)
+    # B\u1ecf ph\u1ea7n sau d\u1ea5u | (vd: | BLV Name, | Server 1)
+    n = re.sub(r'\s*\|\s*.*$', '', n)
+    # B\u1ecf ph\u1ea7n sau d\u1ea5u g\u1ea1ch ngang k\u00e9p -- (vd: -- Server 1)
+    n = re.sub(r'\s*--\s*.*$', '', n)
+    # B\u1ecf c\u00e1c h\u1eadu t\u1ed1 ngu\u1ed3n ki\u1ec3u " - Server 1", " - Ngu\u1ed3n 2" \u1edf cu\u1ed1i
+    n = re.sub(r'\s*-\s*(?:server\s*\d+|ngu\u1ed3n\s*\d+)\s*$', '', n, flags=re.IGNORECASE)
+    # Chu\u1ea9n ho\u00e1 kho\u1ea3ng tr\u1eafng
+    n = re.sub(r'\s+', ' ', n).strip()
+    return n
 
 
 def _fetch_dekiki_lines() -> list:
@@ -729,8 +752,8 @@ def _refresh_all_playlists():
     _store("dekiki",    epg_header + "\n" + "\n".join(dekiki_lines))
     _store("film4k",    epg_header + "\n" + "\n".join(film4k_lines))
 
-    # Combined — Stalker2M3U + live sports first, then static TV channels
-    all_lines = stalker_lines + cola_lines + phaohoa_lines + film4k_lines + dekiki_lines
+    # Combined — live sports first, then static TV channels, Stalker2M3U last
+    all_lines = cola_lines + phaohoa_lines + film4k_lines + dekiki_lines + stalker_lines
     combined_text = epg_header + "\n" + "\n".join(all_lines)
     if err_str:
         combined_text += f"\n# Errors: {err_str}"
