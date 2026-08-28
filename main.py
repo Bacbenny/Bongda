@@ -45,6 +45,10 @@ FILM4K_EVENT_LOGO = os.environ.get(
   "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f4fa.png",
 )
 FILM4K_FINISHED_STATUSES = {"ended", "end", "finished", "complete", "completed"}
+FILM4K_WORKER_ORIGIN = os.environ.get(
+  "FILM4K_WORKER_ORIGIN",
+  "https://dekiiptv95.bacbenny95.workers.dev",
+).rstrip("/")
 
 # ─── Shared config ────────────────────────────────────────────────────────────
 VN_TZ                = timezone(timedelta(hours=7))
@@ -660,17 +664,6 @@ def _fetch_film4k_lines() -> list:
       event_id = event.get("id") or event.get("eventId")
       if not event_id:
           continue
-      try:
-          stream = session.get(
-              f"{FILM4K_BASE_URL}/api/tv/{quote(str(event_id), safe='')}/stream",
-              timeout=FILM4K_API_TIMEOUT,
-          )
-          stream.raise_for_status()
-          stream_url = stream.json().get("url", "")
-      except (requests.RequestException, ValueError, AttributeError):
-          continue
-      if not stream_url:
-          continue
 
       title = str(event.get("title") or "Sự kiện trực tiếp").replace('"', "'").strip()
       status = str(event.get("status") or "").lower().strip()
@@ -685,9 +678,12 @@ def _fetch_film4k_lines() -> list:
       window = f"{state} - {end.strftime('%H:%M') if end else 'đang phát'}"
       lines.append(
           f'#EXTINF:-1 tvg-name="{title}" tvg-logo="{FILM4K_EVENT_LOGO}" '
-          f'group-title="Sự Kiện Trực Tiếp",[{window}] {title}'
+          f'group-title="Sự Kiện FPT",[{window}] {title}'
       )
-      lines.append(str(stream_url))
+      lines.append("#EXTVLCOPT:http-user-agent=FPT Play/2.1")
+      lines.append("#EXTVLCOPT:http-referrer=https://fptplay.vn/")
+      proxy_url = f"{FILM4K_WORKER_ORIGIN}/film4k/event/{quote(str(event_id), safe='')}.mpd"
+      lines.append(proxy_url)
   return lines
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -917,7 +913,7 @@ def index():
         "<li><a href='/cola.m3u'>/cola.m3u</a> — Cola TV only</li>"
         "<li><a href='/phaohoa.m3u'>/phaohoa.m3u</a> — Pháo Hoa TV only</li>"
         "<li><a href='/dekiki.m3u'>/dekiki.m3u</a> — Kênh TV Việt (dekiki)</li>"
-        "<li><a href='/film4k.m3u'>/film4k.m3u</a> — Film4K (Sự Kiện Trực Tiếp)</li>"
+        "<li><a href='/film4k.m3u'>/film4k.m3u</a> — Film4K (Sự Kiện FPT)</li>"
         "</ul>"
         "<h3>📊 Trạng thái</h3>"
         f"<p>📺 Tổng kênh: <strong>{total}</strong>"
