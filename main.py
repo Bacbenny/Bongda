@@ -148,6 +148,23 @@ _last_counts = {
     "refreshed_at": 0, "last_error": "",
 }
 
+# Gunicorn imports ``main:app`` instead of executing this module as __main__.
+# Keep one guarded starter so Render gets the same periodic refresh behavior as
+# local ``python main.py`` runs.
+_background_lock = threading.Lock()
+_background_started = False
+
+def _ensure_background_tasks() -> None:
+    global _background_started
+    if _background_started:
+        return
+    with _background_lock:
+        if _background_started:
+            return
+        threading.Thread(target=_prefetch_loop, daemon=True, name="playlist-refresh").start()
+        threading.Thread(target=_self_ping, daemon=True, name="self-ping").start()
+        _background_started = True
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Sport logo helpers
 # ══════════════════════════════════════════════════════════════════════════════
@@ -309,11 +326,16 @@ _PHAOHOA_HEADERS = {
 }
 
 def _fetch_phaohoa_matches() -> list:
-    """Fetch trận đang live + sắp diễn ra từ khandai3.link.
-    Dùng requests (không cloudscraper) vì API Django REST trả JSON
-    khi có header Accept: application/json.
+    """Fetch live/scheduled matches from the current Pháo Hoa API.
+
+    The API is paginated and may temporarily reject one status filter. A
+    working filter is enough to build the group; only fail the whole source
+    when every query fails, so a transient API problem can be handled by the
+    last-good playlist cache instead of silently replacing it with an empty
+    group.
     """
     results = []
+    query_errors = []
     base = PHAOHOA_API_URL.rstrip("/") + "/"
     sep  = "&" if "?" in base else "?"
 
@@ -323,10 +345,12 @@ def _fetch_phaohoa_matches() -> list:
             resp = requests.get(url, headers=_PHAOHOA_HEADERS, timeout=15)
             resp.raise_for_status()
             data = resp.json()
+            if not isinstance(data, dict):
+                raise RuntimeError("Pháo Hoa API returned a non-object response")
             page_results = data.get("results", [])
             if not isinstance(page_results, list):
                 raise RuntimeError("Pháo Hoa API returned an invalid results list")
-            found.extend(page_results)
+            found.extend(m for m in page_results if isinstance(m, dict))
             url = data.get("next")
             if not url:
                 break
@@ -335,15 +359,18 @@ def _fetch_phaohoa_matches() -> list:
     for status in ("live", "scheduled"):
         try:
             results.extend(fetch_pages(base + sep + f"status={status}&ordering=start_time"))
-        except Exception:
-            continue
+        except Exception as exc:
+            query_errors.append(f"{status}: {exc}")
 
+    # Some API deployments do not support status filtering. Query the latest
+    # page as a compatibility fallback and apply the active-match filter here.
     if not results:
         try:
             results = fetch_pages(base + sep + "ordering=-start_time&page_size=100")
             results = [m for m in results if _phaohoa_is_active(m)]
-        except Exception:
-            return []
+        except Exception as exc:
+            query_errors.append(f"fallback: {exc}")
+            raise RuntimeError("Pháo Hoa API unavailable: " + "; ".join(query_errors)) from exc
 
     unique = {}
     for match in results:
@@ -758,6 +785,15 @@ def _refresh_all_playlists():
     dekiki_lines    = results.get("dekiki",    [])
     film4k_lines    = results.get("film4k",    [])
 
+    # Do not erase a working Pháo Hoa group because of one upstream timeout.
+    # The next refresh will replace it when the API is healthy again.
+    if not phaohoa_lines and any(error.startswith("phaohoa:") for error in errors):
+        previous = _get_entry("phaohoa")
+        if previous.get("content"):
+            previous_lines = previous["content"].decode("utf-8", errors="replace").splitlines()
+            phaohoa_lines = [line for line in previous_lines if not line.startswith("#EXTM3U")]
+            errors.append("phaohoa: kept last successful playlist")
+
     err_str = "; ".join(errors)
 
     def count(lines):
@@ -809,6 +845,8 @@ def _get_entry(key: str):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _m3u_response(key: str, filename: str) -> Response:
+    # Starts the refresh loop when served by Gunicorn as well as when run directly.
+    _ensure_background_tasks()
     entry = _get_entry(key)
 
     # First request — build synchronously if cache is cold
@@ -1002,8 +1040,7 @@ def _self_ping():
 # ══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    threading.Thread(target=_prefetch_loop, daemon=True).start()
-    threading.Thread(target=_self_ping,     daemon=True).start()
+    _ensure_background_tasks()
 
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
