@@ -13,8 +13,8 @@ services:
       - key: COLATV_API
         value: https://api.cltvlv.com/api/matches
       - key: PHAOHOA_FRONTEND
-        value: https://phaohoa1.live
+        value: https://khandai3.link
       - key: PHAOHOA_API
-        value: https://phaohoa1.live/api/matches/
+        value: https://khandai3.link/api/matches/
       - key: MATCH_MAX_DURATION
         value: "7200"
