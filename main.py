@@ -316,21 +316,41 @@ def _fetch_phaohoa_matches() -> list:
     results = []
     base = PHAOHOA_API_URL.rstrip("/") + "/"
     sep  = "&" if "?" in base else "?"
-    for status in ("live", "scheduled"):
-        url = base + sep + f"status={status}&ordering=start_time"
+
+    def fetch_pages(url: str) -> list:
+        found = []
         for _ in range(5):
-            try:
-                resp = requests.get(url, headers=_PHAOHOA_HEADERS, timeout=15)
-                resp.raise_for_status()
-                data = resp.json()
-            except Exception:
+            resp = requests.get(url, headers=_PHAOHOA_HEADERS, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+            page_results = data.get("results", [])
+            if not isinstance(page_results, list):
+                raise RuntimeError("Pháo Hoa API returned an invalid results list")
+            found.extend(page_results)
+            url = data.get("next")
+            if not url:
                 break
-            results.extend(data.get("results", []))
-            next_url = data.get("next")
-            if not next_url:
-                break
-            url = next_url
-    return results
+        return found
+
+    for status in ("live", "scheduled"):
+        try:
+            results.extend(fetch_pages(base + sep + f"status={status}&ordering=start_time"))
+        except Exception:
+            continue
+
+    if not results:
+        try:
+            results = fetch_pages(base + sep + "ordering=-start_time&page_size=100")
+            results = [m for m in results if _phaohoa_is_active(m)]
+        except Exception:
+            return []
+
+    unique = {}
+    for match in results:
+        key = match.get("id") or match.get("slug")
+        if key:
+            unique[str(key)] = match
+    return list(unique.values())
 
 def _phaohoa_is_active(match: dict) -> bool:
     """Trận hợp lệ nếu chưa kết thúc.
