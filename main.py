@@ -22,6 +22,11 @@ COLATV_KNOWN_API_URL  = os.environ.get("COLATV_API",      "https://api.cltvlv.co
 PHAOHOA_FRONTEND_URL   = os.environ.get("PHAOHOA_FRONTEND", "https://khandai3.link")
 PHAOHOA_API_URL        = os.environ.get("PHAOHOA_API",      "https://khandai3.link/api/matches/")
 
+if "phaohoa1.live" in PHAOHOA_FRONTEND_URL:
+    PHAOHOA_FRONTEND_URL = "https://khandai3.link"
+if "phaohoa1.live" in PHAOHOA_API_URL:
+    PHAOHOA_API_URL = "https://khandai3.link/api/matches/"
+
 # ─── Dekiki (GitHub-hosted static list) + EPG ────────────────────────────────
 DEKIKI_M3U_URL = os.environ.get(
     "DEKIKI_M3U_URL",
