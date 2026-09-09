@@ -1,0 +1,51 @@
+#EXTM3U
+# Generated from https://sports.highfly.dev/manifest.json
+# Generated at 2026-09-09T05:25:14.241Z
+#EXTINF:-1 tvg-id="leaf:now-sky-sports-cricket" tvg-name="(FHD) : SKY SPORTS CRICKET ᴿᴬᵂ" tvg-logo="https://cdn.highfly.dev/leaf_posters/now-sky-sports-cricket_UTC.webp?v=3e810a09dc689ab1" group-title="Cricket",(FHD) : SKY SPORTS CRICKET ᴿᴬᵂ
+https://leaf.highfly.dev/m3u/now-sky-sports-cricket/live.m3u8
+#EXTINF:-1 tvg-id="leaf:now-sky-sports-f1-free" tvg-name="(FHD) SKY SPORTS F1 ᴿᴬᵂ" tvg-logo="https://cdn.highfly.dev/leaf_posters/now-sky-sports-f1-free_UTC.webp?v=e6ac96ec86da0ecd" group-title="Motor Sports",(FHD) SKY SPORTS F1 ᴿᴬᵂ
+https://leaf.highfly.dev/m3u/now-sky-sports-f1-free/live.m3u8
+#EXTINF:-1 tvg-id="leaf:now-sky-sports-golf" tvg-name="FHD : SKY SPORTS GOLF ᴿᴬᵂ" tvg-logo="https://cdn.highfly.dev/leaf_posters/now-sky-sports-golf_UTC.webp?v=b95a218f50c14fa5" group-title="Golf",FHD : SKY SPORTS GOLF ᴿᴬᵂ
+https://leaf.highfly.dev/m3u/now-sky-sports-golf/live.m3u8
+#EXTINF:-1 tvg-id="leaf:now-sky-sports-tennis" tvg-name="(FHD) : SKY SPORTS TENNIS ᴿᴬᵂ" tvg-logo="https://cdn.highfly.dev/leaf_posters/now-sky-sports-tennis_UTC.webp?v=128f9449c7fabbe0" group-title="Tennis",(FHD) : SKY SPORTS TENNIS ᴿᴬᵂ
+https://leaf.highfly.dev/m3u/now-sky-sports-tennis/live.m3u8
+#EXTINF:-1 tvg-id="leaf:us-tennis-channel" tvg-name="US: TENNIS CHANNEL" tvg-logo="https://cdn.highfly.dev/leaf_posters/us-tennis-channel_UTC.webp?v=874d05f62e34a3b7" group-title="Tennis",US: TENNIS CHANNEL
+https://leaf.highfly.dev/m3u/us-tennis-channel/live.m3u8
+#EXTINF:-1 tvg-id="leaf:us-espn-hd" tvg-name="US: ESPN HD" tvg-logo="https://cdn.highfly.dev/leaf_posters/us-espn-hd_UTC.webp?v=aae21862223fc38d" group-title="Sports",US: ESPN HD
+https://leaf.highfly.dev/m3u/us-espn-hd/live.m3u8
+#EXTINF:-1 tvg-id="leaf:now-sky-sports-premier-league" tvg-name="NOW: SKY SPORTS PREMIER LEAGUE ᴿᴬᵂ" tvg-logo="https://cdn.highfly.dev/leaf_posters/now-sky-sports-premier-league_UTC.webp?v=96fe81f1dc593a21" group-title="Football",NOW: SKY SPORTS PREMIER LEAGUE ᴿᴬᵂ
+https://leaf.highfly.dev/m3u/now-sky-sports-premier-league/live.m3u8
+#EXTINF:-1 tvg-id="leaf:au-fox-sports-502-hd" tvg-name="AU: FOX SPORTS 502 HD" tvg-logo="https://cdn.highfly.dev/leaf_posters/au-fox-sports-502-hd_UTC.webp?v=246c6e377302e7eb" group-title="Afl",AU: FOX SPORTS 502 HD
+https://leaf.highfly.dev/m3u/au-fox-sports-502-hd/live.m3u8
+#EXTINF:-1 tvg-id="leaf:au-fox-sports-504-hd" tvg-name="AU: FOX SPORTS 504 HD" tvg-logo="https://cdn.highfly.dev/leaf_posters/au-fox-sports-504-hd_UTC.webp?v=a58b9f5f7aef2e8e" group-title="Afl",AU: FOX SPORTS 504 HD
+https://leaf.highfly.dev/m3u/au-fox-sports-504-hd/live.m3u8
+#EXTINF:-1 tvg-id="streamed:miami-marlins-vs-new-york-mets-2497348" tvg-name="Miami Marlins vs New York Mets" tvg-logo="https://cdn.highfly.dev/posters/miami-marlins-vs-new-york-mets-2497348_UTC.webp?v=1b6d6007" group-title="Baseball",Miami Marlins vs New York Mets
+https://leaf.highfly.dev/m3u/762776/live.m3u8
+#EXTINF:-1 tvg-id="streamed:ppv-dana-white-s-contender-series" tvg-name="Dana White's Contender Series" tvg-logo="https://cdn.highfly.dev/posters/ppv-dana-white-s-contender-series_UTC.webp?v=49d59fb1" group-title="Fight",Dana White's Contender Series
+https://leaf.highfly.dev/m3u/1501724/live.m3u8
+#EXTINF:-1 tvg-id="streamed:ppv-dana-white-s-contender-series" tvg-name="Dana White's Contender Series" tvg-logo="https://cdn.highfly.dev/posters/ppv-dana-white-s-contender-series_UTC.webp?v=49d59fb1" group-title="Fight",Dana White's Contender Series
+https://leaf.highfly.dev/m3u/605889/live.m3u8
+#EXTINF:-1 tvg-id="streamed:ppv-dana-white-s-contender-series" tvg-name="Dana White's Contender Series" tvg-logo="https://cdn.highfly.dev/posters/ppv-dana-white-s-contender-series_UTC.webp?v=49d59fb1" group-title="Fight",Dana White's Contender Series
+https://leaf.highfly.dev/m3u/605787/live.m3u8
+#EXTINF:-1 tvg-id="streamed:ppv-dana-white-s-contender-series" tvg-name="Dana White's Contender Series" tvg-logo="https://cdn.highfly.dev/posters/ppv-dana-white-s-contender-series_UTC.webp?v=49d59fb1" group-title="Fight",Dana White's Contender Series
+https://leaf.highfly.dev/m3u/1855358/live.m3u8
+#EXTINF:-1 tvg-id="streamed:seattle-mariners-vs-texas-rangers-2498300" tvg-name="Seattle Mariners vs Texas Rangers" tvg-logo="https://cdn.highfly.dev/posters/seattle-mariners-vs-texas-rangers-2498300_UTC.webp?v=215d7117" group-title="Baseball",Seattle Mariners vs Texas Rangers
+https://leaf.highfly.dev/m3u/1904219/live.m3u8
+#EXTINF:-1 tvg-id="streamed:seattle-mariners-vs-texas-rangers-2498300" tvg-name="Seattle Mariners vs Texas Rangers" tvg-logo="https://cdn.highfly.dev/posters/seattle-mariners-vs-texas-rangers-2498300_UTC.webp?v=215d7117" group-title="Baseball",Seattle Mariners vs Texas Rangers
+https://leaf.highfly.dev/m3u/1904222/live.m3u8
+#EXTINF:-1 tvg-id="streamed:san-diego-padres-vs-washington-nationals-2498301" tvg-name="San Diego Padres vs Washington Nationals" tvg-logo="https://cdn.highfly.dev/posters/san-diego-padres-vs-washington-nationals-2498301_UTC.webp?v=0a8560f2" group-title="Baseball",San Diego Padres vs Washington Nationals
+https://leaf.highfly.dev/m3u/1904224/live.m3u8
+#EXTINF:-1 tvg-id="streamed:san-diego-padres-vs-washington-nationals-2498301" tvg-name="San Diego Padres vs Washington Nationals" tvg-logo="https://cdn.highfly.dev/posters/san-diego-padres-vs-washington-nationals-2498301_UTC.webp?v=0a8560f2" group-title="Baseball",San Diego Padres vs Washington Nationals
+https://leaf.highfly.dev/m3u/1904217/live.m3u8
+#EXTINF:-1 tvg-id="streamed:athletics-vs-toronto-blue-jays-2498302" tvg-name="Athletics vs Toronto Blue Jays" tvg-logo="https://cdn.highfly.dev/posters/athletics-vs-toronto-blue-jays-2498302_UTC.webp?v=0c92b7fa" group-title="Baseball",Athletics vs Toronto Blue Jays
+https://leaf.highfly.dev/m3u/1904214/live.m3u8
+#EXTINF:-1 tvg-id="streamed:athletics-vs-toronto-blue-jays-2498302" tvg-name="Athletics vs Toronto Blue Jays" tvg-logo="https://cdn.highfly.dev/posters/athletics-vs-toronto-blue-jays-2498302_UTC.webp?v=0c92b7fa" group-title="Baseball",Athletics vs Toronto Blue Jays
+https://leaf.highfly.dev/m3u/1904223/live.m3u8
+#EXTINF:-1 tvg-id="streamed:san-francisco-giants-vs-st--louis-cardinals-2498303" tvg-name="San Francisco Giants vs St. Louis Cardinals" tvg-logo="https://cdn.highfly.dev/posters/san-francisco-giants-vs-st--louis-cardinals-2498303_UTC.webp?v=df951361" group-title="Baseball",San Francisco Giants vs St. Louis Cardinals
+https://leaf.highfly.dev/m3u/1904220/live.m3u8
+#EXTINF:-1 tvg-id="streamed:san-francisco-giants-vs-st--louis-cardinals-2498303" tvg-name="San Francisco Giants vs St. Louis Cardinals" tvg-logo="https://cdn.highfly.dev/posters/san-francisco-giants-vs-st--louis-cardinals-2498303_UTC.webp?v=df951361" group-title="Baseball",San Francisco Giants vs St. Louis Cardinals
+https://leaf.highfly.dev/m3u/1904218/live.m3u8
+#EXTINF:-1 tvg-id="streamed:los-angeles-dodgers-vs-cincinnati-reds-2498304" tvg-name="Los Angeles Dodgers vs Cincinnati Reds" tvg-logo="https://cdn.highfly.dev/posters/los-angeles-dodgers-vs-cincinnati-reds-2498304_UTC.webp?v=04d0c8b3" group-title="Baseball",Los Angeles Dodgers vs Cincinnati Reds
+https://leaf.highfly.dev/m3u/1904208/live.m3u8
+#EXTINF:-1 tvg-id="streamed:los-angeles-dodgers-vs-cincinnati-reds-2498304" tvg-name="Los Angeles Dodgers vs Cincinnati Reds" tvg-logo="https://cdn.highfly.dev/posters/los-angeles-dodgers-vs-cincinnati-reds-2498304_UTC.webp?v=04d0c8b3" group-title="Baseball",Los Angeles Dodgers vs Cincinnati Reds
+https://leaf.highfly.dev/m3u/1904201/live.m3u8
