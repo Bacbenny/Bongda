@@ -584,37 +584,3 @@ https://livevliatmcdw.seenow.vn/live/data8/SKSS1/Live_DASHDRM/SKSS1.mpd
 #KODIPROP:inputstream.adaptive.license_type=clearkey
 #KODIPROP:inputstream.adaptive.license_key=ca0576ec419f490789860894bb50c977:25d2e703eee38718240e7038d1908fef
 https://livevliatmcdw.seenow.vn/live/data8/SKSS2/Live_DASHDRM/SKSS2.mpd
-
-# === PHAO HOA TV AUTO-UPDATE BEGIN ===
-# Generated from Pháo Hoa API — do not edit this block manually.
-#EXTINF:-1 tvg-logo="https://khandai3.link/media/sports/icons/bóng_đá_tXyI0zo.png" group-title="Pháo Hoa TV",22:55 - 09/09 | Al Kholood VS Al Shabab (Saudi Pro League) | Tày
-https://luong.phaohoa.live/live/phaohoa8/index.m3u8?expire=1815822079&sign=9a0c1792a57466ace2166ab62a2ea149|Referer=https://khandai3.link/&User-Agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36
-#EXTINF:-1 tvg-logo="https://khandai3.link/media/sports/icons/bchuyen.png" group-title="Pháo Hoa TV",23:00 - 09/09 | Bulgaria VS Bắc Macedonia (CEV Cup) | KaKa
-https://luong.phaohoa.live/live/phaohoa6/index.m3u8?expire=1815505159&sign=16059952b038cc8982ab6d1980711dc9|Referer=https://khandai3.link/&User-Agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36
-#EXTINF:-1 tvg-logo="https://khandai3.link/media/sports/icons/bóng_đá_tXyI0zo.png" group-title="Pháo Hoa TV",23:45 - 09/09 | Twente VS Telstar (Eredivisie) | Văn Minh
-https://luong.phaohoa.live/live/phaohoa3/index.m3u8?expire=1815505159&sign=32dbf97946c3646cdd7f664aebd7fa2a|Referer=https://khandai3.link/&User-Agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36
-#EXTINF:-1 tvg-logo="https://khandai3.link/media/sports/icons/bóng_đá_tXyI0zo.png" group-title="Pháo Hoa TV",23:45 - 09/09 | Barcelona VS Feyenoord (UEFA Champions League) | Chim Nhỏ
-https://luong.phaohoa.live/live/phaohoa5/index.m3u8?expire=1815505159&sign=67cc5bcdcabb081229f5406e5b07483d|Referer=https://khandai3.link/&User-Agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36
-#EXTINF:-1 tvg-logo="https://khandai3.link/media/sports/icons/bóng_đá_tXyI0zo.png" group-title="Pháo Hoa TV",23:45 - 09/09 | Stuttgart VS Viking (UEFA Champions League) | Kevin
-https://luong.phaohoa.live/live/phaohoa2/index.m3u8?expire=1815505159&sign=d3bfcbaa36f949863f22cc89e1cc1afa|Referer=https://khandai3.link/&User-Agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36
-#EXTINF:-1 tvg-logo="https://khandai3.link/media/sports/icons/bchuyen.png" group-title="Pháo Hoa TV",00:00 - 10/09 | Romania VS Latvia (CEV Cup) | Tiểu Mây
-https://luong.phaohoa.live/live/phaohoa9/index.m3u8?expire=1815822079&sign=9a0c1792a57466ace2166ab62a2ea149|Referer=https://khandai3.link/&User-Agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36
-#EXTINF:-1 tvg-logo="https://khandai3.link/media/sports/icons/bóng_đá_tXyI0zo.png" group-title="Pháo Hoa TV",01:00 - 10/09 | Al Fateh VS Al Diriyah (Saudi Pro League) | Test
-https://luong.phaohoa.live/live/phaohoa1/index.m3u8?expire=1815505159&sign=9137553faeae361734eec8bda5ea16e2|Referer=https://khandai3.link/&User-Agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36
-#EXTINF:-1 tvg-logo="https://khandai3.link/media/sports/icons/bóng_đá_tXyI0zo.png" group-title="Pháo Hoa TV",01:00 - 10/09 | Al Nassr VS Abha (Saudi Pro League) | Pháo Thủ
-https://luong.phaohoa.live/live/phaohoa4/index.m3u8?expire=1815505159&sign=faaa23580764370ed378ecd708c9f262|Referer=https://khandai3.link/&User-Agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36
-#EXTINF:-1 tvg-logo="https://khandai3.link/media/sports/icons/bóng_đá_tXyI0zo.png" group-title="Pháo Hoa TV",02:00 - 10/09 | Liverpool VS Atl. Madrid (UEFA Champions League) | Kevin
-https://luong.phaohoa.live/live/phaohoa2/index.m3u8?expire=1815505159&sign=d3bfcbaa36f949863f22cc89e1cc1afa|Referer=https://khandai3.link/&User-Agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36
-#EXTINF:-1 tvg-logo="https://khandai3.link/media/sports/icons/bóng_đá_tXyI0zo.png" group-title="Pháo Hoa TV",02:00 - 10/09 | Napoli VS Arsenal (UEFA Champions League) | Lưu Bị
-https://luong.phaohoa.live/live/phaohoa7/index.m3u8?expire=1815822079&sign=9a0c1792a57466ace2166ab62a2ea149|Referer=https://khandai3.link/&User-Agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36
-#EXTINF:-1 tvg-logo="https://khandai3.link/media/sports/icons/bóng_đá_tXyI0zo.png" group-title="Pháo Hoa TV",02:00 - 10/09 | PSG VS Slovan Bratislava (UEFA Champions League) | Tày
-https://luong.phaohoa.live/live/phaohoa8/index.m3u8?expire=1815822079&sign=9a0c1792a57466ace2166ab62a2ea149|Referer=https://khandai3.link/&User-Agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36
-#EXTINF:-1 tvg-logo="https://khandai3.link/media/sports/icons/bóng_đá_tXyI0zo.png" group-title="Pháo Hoa TV",02:00 - 10/09 | Sporting CP VS Galatasaray (UEFA Champions League) | Văn Minh
-https://luong.phaohoa.live/live/phaohoa3/index.m3u8?expire=1815505159&sign=32dbf97946c3646cdd7f664aebd7fa2a|Referer=https://khandai3.link/&User-Agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36
-#EXTINF:-1 tvg-logo="https://khandai3.link/media/sports/icons/bóng_đá_tXyI0zo.png" group-title="Pháo Hoa TV",02:00 - 10/09 | Chelsea VS Leeds (League Cup) | Chim Nhỏ
-https://luong.phaohoa.live/live/phaohoa5/index.m3u8?expire=1815505159&sign=67cc5bcdcabb081229f5406e5b07483d|Referer=https://khandai3.link/&User-Agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36
-#EXTINF:-1 tvg-logo="https://khandai3.link/media/sports/icons/bchuyen.png" group-title="Pháo Hoa TV",06:00 - 10/09 | Brazil VS Peru (Vô Địch Nam Mỹ) | KaKa
-https://luong.phaohoa.live/live/phaohoa6/index.m3u8?expire=1815505159&sign=16059952b038cc8982ab6d1980711dc9|Referer=https://khandai3.link/&User-Agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36
-#EXTINF:-1 tvg-logo="https://khandai3.link/media/sports/icons/bóng_đá_tXyI0zo.png" group-title="Pháo Hoa TV",07:30 - 10/09 | Chicago Fire VS Inter Miami (MLS) | Tày
-https://luong.phaohoa.live/live/phaohoa8/index.m3u8?expire=1815822079&sign=9a0c1792a57466ace2166ab62a2ea149|Referer=https://khandai3.link/&User-Agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36
-# === PHAO HOA TV AUTO-UPDATE END ===

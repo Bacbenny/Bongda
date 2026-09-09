@@ -535,38 +535,15 @@ def _normalize_program_name(name: str) -> str:
 
 
 def _fetch_dekiki_lines() -> list:
-    """Download the static M3U, excluding the auto-managed Pháo Hoa block.
-
-    ``xemtv.m3u`` is also a user-facing playlist, so Pháo Hoa entries are
-    intentionally kept there by the GitHub updater. The live server fetches
-    Pháo Hoa separately to obtain fresh stream links; skip the embedded block
-    here so ``/live.m3u`` does not show every match twice.
-    """
+    """Download the GitHub-hosted M3U, strip its header, return raw lines."""
     resp = requests.get(DEKIKI_M3U_URL, timeout=20)
     resp.raise_for_status()
     lines = []
-    skip_phaohoa_entry = False
-    in_phaohoa_block = False
     for line in resp.text.splitlines():
         stripped = line.rstrip()
         if not stripped or stripped.startswith("#EXTM3U"):
             continue
-        if stripped == "# === PHAO HOA TV AUTO-UPDATE BEGIN ===":
-            in_phaohoa_block = True
-            continue
-        if stripped == "# === PHAO HOA TV AUTO-UPDATE END ===":
-            in_phaohoa_block = False
-            skip_phaohoa_entry = False
-            continue
-        if in_phaohoa_block:
-            continue
-        if stripped.startswith("#EXTINF"):
-            skip_phaohoa_entry = 'group-title="Pháo Hoa TV"' in stripped
-            if not skip_phaohoa_entry:
-                lines.append(stripped)
-            continue
-        if not skip_phaohoa_entry:
-            lines.append(stripped)
+        lines.append(stripped)
     return lines
 
 # ══════════════════════════════════════════════════════════════════════════════
