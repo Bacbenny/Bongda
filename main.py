@@ -19,8 +19,8 @@ COLATV_FRONTEND_URL   = os.environ.get("COLATV_FRONTEND", "https://colatv48.live
 COLATV_KNOWN_API_URL  = os.environ.get("COLATV_API",      "https://api.cltvlv.com/api/matches")
 
 # ─── Pháo Hoa TV config ──────────────────────────────────────────────────────
-PHAOHOA_FRONTEND_URL   = os.environ.get("PHAOHOA_FRONTEND", "https://phaohoa1.live")
-PHAOHOA_API_URL        = os.environ.get("PHAOHOA_API",      "https://phaohoa1.live/api/matches/")
+PHAOHOA_FRONTEND_URL   = os.environ.get("PHAOHOA_FRONTEND", "https://khandai3.link")
+PHAOHOA_API_URL        = os.environ.get("PHAOHOA_API",      "https://khandai3.link/api/matches/")
 
 # ─── Dekiki (GitHub-hosted static list) + EPG ────────────────────────────────
 DEKIKI_M3U_URL = os.environ.get(
@@ -88,7 +88,7 @@ _phaohoa_api_cache  = {"url": PHAOHOA_API_URL,  "discovered_at": 0}
 # ─── Auto domain resolution ───────────────────────────────────────────────────
 def _resolve_base_url(url: str, timeout: int = 8) -> str:
     """Follow HTTP 3xx redirects và trả về scheme+host cuối cùng.
-    Tự động phát hiện khi domain đổi (vd: phaohoa1.live → phaohoa2.live).
+    Tự động phát hiện khi domain đổi (vd: khandai3.link → khandai4.link).
     """
     try:
         r = requests.get(
@@ -286,8 +286,8 @@ def _build_colatv_lines(matches: dict) -> list:
     return lines
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  Pháo Hoa TV — fetch từ phaohoa1.live/api/matches (Django REST, không token)
-#  API  : https://phaohoa1.live/api/matches/?page=N
+#  Pháo Hoa TV — fetch từ khandai3.link/api/matches (Django REST, không token)
+#  API  : https://khandai3.link/api/matches/?page=N
 #  Schema: {count, next, previous, results: [{id, sport_name, sport_icon_url,
 #            tournament_name, home_team_name, home_team_logo, away_team_name,
 #            away_team_logo, start_time, status, primary_stream_url,
@@ -299,12 +299,12 @@ _PHAOHOA_HEADERS = {
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     ),
-    "Referer": "https://phaohoa1.live/",
+    "Referer": "https://khandai3.link/",
     "Accept": "application/json",
 }
 
 def _fetch_phaohoa_matches() -> list:
-    """Fetch trận đang live + sắp diễn ra từ phaohoa1.live.
+    """Fetch trận đang live + sắp diễn ra từ khandai3.link.
     Dùng requests (không cloudscraper) vì API Django REST trả JSON
     khi có header Accept: application/json.
     """
