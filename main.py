@@ -1,5 +1,6 @@
 import gzip
 import hashlib
+import json
 import os
 import re
 import threading
@@ -325,6 +326,61 @@ _PHAOHOA_HEADERS = {
     "Accept": "application/json",
 }
 
+
+def _json_from_reader(text: str) -> dict:
+    """Extract the first JSON object from the Reader response."""
+    start = text.find("{")
+    if start < 0:
+        raise RuntimeError("Pháo Hoa proxy returned no JSON object")
+    try:
+        data, _ = json.JSONDecoder().raw_decode(text[start:])
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("Pháo Hoa proxy returned invalid JSON") from exc
+    if not isinstance(data, dict):
+        raise RuntimeError("Pháo Hoa proxy returned a non-object response")
+    return data
+
+
+def _fetch_phaohoa_json(url: str) -> dict:
+    """Fetch Pháo Hoa JSON directly, then through Reader if Render is blocked.
+
+    Render's outbound IP is currently rejected by khandai3.link with HTTP 403,
+    while the public API remains reachable from ordinary clients. The Reader
+    fallback is intentionally limited to failed direct requests so healthy
+    traffic stays direct and low-latency.
+    """
+    try:
+        resp = requests.get(url, headers=_PHAOHOA_HEADERS, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        if not isinstance(data, dict):
+            raise RuntimeError("Pháo Hoa API returned a non-object response")
+        return data
+    except Exception as direct_error:
+        # r.jina.ai fetches the same public URL from a separate network and
+        # returns the JSON body inside a Reader document.
+        # Use the Reader's HTTP-target form; its HTTPS-target form is
+        # rejected by the Reader edge for this host.
+        reader_target = url.replace("https://", "http://", 1) if url.startswith("https://") else url
+        # Ask for JSON to keep the response small and deterministic. Escape
+        # ampersands so they remain part of the target URL rather than becoming
+        # query parameters of the Reader endpoint itself.
+        format_sep = "&" if "?" in reader_target else "?"
+        reader_target += format_sep + "format=json"
+        reader_url = "https://r.jina.ai/" + reader_target.replace("&", "%26")
+        try:
+            proxy_resp = requests.get(
+                reader_url,
+                headers={"User-Agent": "Mozilla/5.0", "Accept": "text/plain"},
+                timeout=45,
+            )
+            proxy_resp.raise_for_status()
+            return _json_from_reader(proxy_resp.text)
+        except Exception as proxy_error:
+            raise RuntimeError(
+                f"direct API failed ({direct_error}); Reader fallback failed ({proxy_error})"
+            ) from proxy_error
+
 def _fetch_phaohoa_matches() -> list:
     """Fetch live/scheduled matches from the current Pháo Hoa API.
 
@@ -342,11 +398,7 @@ def _fetch_phaohoa_matches() -> list:
     def fetch_pages(url: str) -> list:
         found = []
         for _ in range(5):
-            resp = requests.get(url, headers=_PHAOHOA_HEADERS, timeout=15)
-            resp.raise_for_status()
-            data = resp.json()
-            if not isinstance(data, dict):
-                raise RuntimeError("Pháo Hoa API returned a non-object response")
+            data = _fetch_phaohoa_json(url)
             page_results = data.get("results", [])
             if not isinstance(page_results, list):
                 raise RuntimeError("Pháo Hoa API returned an invalid results list")
@@ -440,11 +492,9 @@ def _get_server_base_url() -> str:
     return f"http://localhost:{os.environ.get('PORT', 5000)}"
 
 def _fetch_phaohoa_match_by_slug(slug: str) -> dict:
-    """Fetch chi tiết 1 trận theo slug từ API Pháo Hoa."""
+    """Fetch chi tiết 1 trận, with the same Render-safe fallback."""
     url = PHAOHOA_API_URL.rstrip("/") + "/" + slug + "/"
-    resp = requests.get(url, headers=_PHAOHOA_HEADERS, timeout=15)
-    resp.raise_for_status()
-    return resp.json()
+    return _fetch_phaohoa_json(url)
 
 def _build_phaohoa_lines(matches: list) -> list:
     """Build M3U lines cho Pháo Hoa TV.
