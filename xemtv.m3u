@@ -171,10 +171,10 @@ https://vmttv.dpdns.org/VTVGo/?sctv20
 #EXTINF:-1 tvg-id="sctv21hd" group-title="SCTV" tvg-logo="https://i.ibb.co/nmxNkPG/s21-hd.jpg",SCTV21
 https://vmttv.dpdns.org/VTVGo/?sctv21
 #EXTINF:-1 tvg-id="sctvhdpth" group-title="SCTV" tvg-logo="https://i.ibb.co/G2XQD3X/logo26072108-sctv-phim-THHD.png",SCTV Phim tổng hợp
-https://vpsttt.vietanhtv.top/sctv/tv.php?id=sctv-phim-tong-hop-e6d2df88
+https://vmttv.dpdns.org/VTVGo/?sctvphim
 #EXTINF:-1 tvg-id="sctv4k" group-title="SCTV" group-logo="https://sgchill.duckdns.org/logo/sctv.png" tvg-logo="https://sgchill.duckdns.org/logo/sctv4k.png",SCTV4K
 #EXTVLCOPT:http-user-agent=Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36
-https://vpsttt.vietanhtv.top/sctv/tv.php?id=sctv-4k
+https://vietanhtv.id.vn/sctv/sctv-4k/index.m3u8
 #EXTINF:-1 tvg-id="htv1hd" tvg-name="HTV1 HD" tvg-logo="https://static.wikia.nocookie.net/logos/images/9/9f/HTV1_30-12-2024.png/revision/latest?cb=20260414043039&path-prefix=vi" group-title="HTV/HTVC",HTV1 HD
 https://live.fptplay53.net/epzhd1/htv1_hls.smil/chunklist.m3u8
 #EXTINF:-1 tvg-id="htv2hd" tvg-name="HTV2 HD | Vie Channel" tvg-logo="https://static.wikia.nocookie.net/logos/images/1/19/HTV2_Vie_Channel_logo_ch%C3%ADnh_31-12-2024.png/revision/latest?cb=20250111052428&path-prefix=vi" group-title="HTV/HTVC",HTV2 HD | Vie Channel
@@ -417,24 +417,6 @@ https://amg01868-amg01868c3-tvbanywhere-us-4491.playouts.now.amagi.tv/playlist10
 #KODIPROP:inputstream.adaptive.license_type=clearkey
 #KODIPROP:inputstream.adaptive.license_key=acb4c23471063327adc732e283c0847f:e9868f5f473d0fd8699ede48d531c2b0
 https://s2129134.cdn.mytvnet.vn/pkg20/live_dzones/max.smil/manifest.mpd
-#EXTINF:-1 tvg-name="SKY SPORTS PREMIER LEAGUE" tvg-logo="https://cdn.highfly.dev/leaf_posters/now-sky-sports-premier-league_UTC.webp?v=96fe81f1dc593a21" group-title="Thể Thao Quốc Tế",SKY SPORTS PREMIER LEAGUE
-https://leaf.highfly.dev/m3u/now-sky-sports-premier-league/live.m3u8
-#EXTINF:-1 tvg-name="SKY SPORTS F1" tvg-logo="https://cdn.highfly.dev/leaf_posters/now-sky-sports-f1-free_UTC.webp?v=e6ac96ec86da0ecd" group-title="Thể Thao Quốc Tế",SKY SPORTS F1
-https://leaf.highfly.dev/m3u/now-sky-sports-f1-free/live.m3u8
-#EXTINF:-1 tvg-name="SKY SPORTS GOLF" tvg-logo="https://cdn.highfly.dev/leaf_posters/now-sky-sports-golf_UTC.webp?v=b95a218f50c14fa5" group-title="Thể Thao Quốc Tế",SKY SPORTS GOLF
-https://leaf.highfly.dev/m3u/now-sky-sports-golf/live.m3u8
-#EXTINF:-1 tvg-name="SKY SPORTS TENNIS" tvg-logo="https://cdn.highfly.dev/leaf_posters/now-sky-sports-tennis_UTC.webp?v=128f9449c7fabbe0" group-title="Thể Thao Quốc Tế",SKY SPORTS TENNIS
-https://leaf.highfly.dev/m3u/now-sky-sports-tennis/live.m3u8
-#EXTINF:-1 tvg-name="SKY SPORTS CRICKET" tvg-logo="https://cdn.highfly.dev/leaf_posters/now-sky-sports-cricket_UTC.webp?v=3e810a09dc689ab1" group-title="Thể Thao Quốc Tế",SKY SPORTS CRICKET
-https://leaf.highfly.dev/m3u/now-sky-sports-cricket/live.m3u8
-#EXTINF:-1 tvg-name="TENNIS CHANNEL" tvg-logo="https://cdn.highfly.dev/leaf_posters/us-tennis-channel_UTC.webp?v=874d05f62e34a3b7" group-title="Thể Thao Quốc Tế",TENNIS CHANNEL
-https://leaf.highfly.dev/m3u/us-tennis-channel/live.m3u8
-#EXTINF:-1 tvg-name="ESPN HD" tvg-logo="https://cdn.highfly.dev/leaf_posters/us-espn-hd_UTC.webp?v=aae21862223fc38d" group-title="Thể Thao Quốc Tế",ESPN HD
-https://leaf.highfly.dev/m3u/us-espn-hd/live.m3u8
-#EXTINF:-1 tvg-name="FOX SPORTS 502 HD" tvg-logo="https://cdn.highfly.dev/leaf_posters/au-fox-sports-502-hd_UTC.webp?v=246c6e377302e7eb" group-title="Thể Thao Quốc Tế",FOX SPORTS 502 HD
-https://leaf.highfly.dev/m3u/au-fox-sports-502-hd/live.m3u8
-#EXTINF:-1 tvg-name="FOX SPORTS 504 HD" tvg-logo="https://cdn.highfly.dev/leaf_posters/au-fox-sports-504-hd_UTC.webp?v=a58b9f5f7aef2e8e" group-title="Thể Thao Quốc Tế",FOX SPORTS 504 HD
-https://leaf.highfly.dev/m3u/au-fox-sports-504-hd/live.m3u8
 #EXTINF:-1 tvg-id="tv360plus1" group-title="Sự Kiện TV360" tvg-logo="https://img-zlr1.tv360.vn/image1/2026/04/15/22/1776266760359/ba1ca843cd06_480_270.png", TV360+1
 #EXTVLCOPT:http-user-agent=Dalvik/2.1.0
 #KODIPROP:inputstream.adaptive.manifest_type=mpd
