@@ -22,6 +22,7 @@ COLATV_KNOWN_API_URL  = os.environ.get("COLATV_API",      "https://api.cltvlv.co
 # ─── Pháo Hoa TV config ──────────────────────────────────────────────────────
 PHAOHOA_FRONTEND_URL   = os.environ.get("PHAOHOA_FRONTEND", "https://khandai3.link")
 PHAOHOA_API_URL        = os.environ.get("PHAOHOA_API",      "https://khandai3.link/api/matches/")
+PHAOHOA_FETCH_URL      = "https://khandai3.link/api/matches/?ordering=-start_time&page_size=100"
 
 if "phaohoa1.live" in PHAOHOA_FRONTEND_URL:
     PHAOHOA_FRONTEND_URL = "https://khandai3.link"
@@ -86,6 +87,9 @@ SPORT_LOGOS = {
     "hockey":      f"{_CDN}/1f3d2.png",
     "default":     f"{_CDN}/1f3c6.png",
 }
+
+# Pháo Hoa dùng cùng logo bóng đá mặc định như nhóm CoLa trên giao diện.
+PHAOHOA_GROUP_LOGO = SPORT_LOGOS["football"]
 
 # ─── API URL caches ───────────────────────────────────────────────────────────
 _colatv_api_cache   = {"url": COLATV_KNOWN_API_URL,    "discovered_at": 0}
@@ -382,50 +386,27 @@ def _fetch_phaohoa_json(url: str) -> dict:
             ) from proxy_error
 
 def _fetch_phaohoa_matches() -> list:
-    """Fetch live/scheduled matches from the current Pháo Hoa API.
+    """Fetch Pháo Hoa matches from one fixed, ordered endpoint.
 
-    The API is paginated and may temporarily reject one status filter. A
-    working filter is enough to build the group; only fail the whole source
-    when every query fails, so a transient API problem can be handled by the
-    last-good playlist cache instead of silently replacing it with an empty
-    group.
+    Fetching one page stream is faster than making separate live/scheduled
+    requests; active-match filtering remains local for compatibility.
     """
     results = []
-    query_errors = []
-    base = PHAOHOA_API_URL.rstrip("/") + "/"
-    sep  = "&" if "?" in base else "?"
-
-    def fetch_pages(url: str) -> list:
-        found = []
-        for _ in range(5):
-            data = _fetch_phaohoa_json(url)
-            page_results = data.get("results", [])
-            if not isinstance(page_results, list):
-                raise RuntimeError("Pháo Hoa API returned an invalid results list")
-            found.extend(m for m in page_results if isinstance(m, dict))
-            url = data.get("next")
-            if not url:
-                break
-        return found
-
-    for status in ("live", "scheduled"):
-        try:
-            results.extend(fetch_pages(base + sep + f"status={status}&ordering=start_time"))
-        except Exception as exc:
-            query_errors.append(f"{status}: {exc}")
-
-    # Some API deployments do not support status filtering. Query the latest
-    # page as a compatibility fallback and apply the active-match filter here.
-    if not results:
-        try:
-            results = fetch_pages(base + sep + "ordering=-start_time&page_size=100")
-            results = [m for m in results if _phaohoa_is_active(m)]
-        except Exception as exc:
-            query_errors.append(f"fallback: {exc}")
-            raise RuntimeError("Pháo Hoa API unavailable: " + "; ".join(query_errors)) from exc
+    url = PHAOHOA_FETCH_URL
+    for _ in range(5):
+        data = _fetch_phaohoa_json(url)
+        page_results = data.get("results", [])
+        if not isinstance(page_results, list):
+            raise RuntimeError("Pháo Hoa API returned an invalid results list")
+        results.extend(m for m in page_results if isinstance(m, dict))
+        url = data.get("next")
+        if not url:
+            break
 
     unique = {}
     for match in results:
+        if not _phaohoa_is_active(match):
+            continue
         key = match.get("id") or match.get("slug")
         if key:
             unique[str(key)] = match
@@ -469,14 +450,8 @@ def _pick_phaohoa_stream(match: dict) -> tuple:
     return "", ""
 
 def _phaohoa_logo(match: dict) -> str:
-    """Logo dựa trên sport_icon_url (có sẵn từ API) hoặc sport_name."""
-    icon = (match.get("sport_icon_url") or "").strip()
-    if icon:
-        # Nếu là relative path thì prepend domain
-        if icon.startswith("/"):
-            icon = PHAOHOA_FRONTEND_URL.rstrip("/") + icon
-        return icon
-    return _logo_from_text(match.get("sport_name") or match.get("sport_slug") or "")
+    """Return the same football logo used by the CoLa group default."""
+    return PHAOHOA_GROUP_LOGO
 
 def _get_server_base_url() -> str:
     """Lấy base URL của server để tạo proxy URL tuyệt đối."""
