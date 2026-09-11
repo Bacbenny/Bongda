@@ -88,8 +88,6 @@ SPORT_LOGOS = {
     "default":     f"{_CDN}/1f3c6.png",
 }
 
-# Pháo Hoa dùng cùng logo bóng đá mặc định như nhóm CoLa trên giao diện.
-PHAOHOA_GROUP_LOGO = SPORT_LOGOS["football"]
 
 # ─── API URL caches ───────────────────────────────────────────────────────────
 _colatv_api_cache   = {"url": COLATV_KNOWN_API_URL,    "discovered_at": 0}
@@ -450,8 +448,19 @@ def _pick_phaohoa_stream(match: dict) -> tuple:
     return "", ""
 
 def _phaohoa_logo(match: dict) -> str:
-    """Return the same football logo used by the CoLa group default."""
-    return PHAOHOA_GROUP_LOGO
+    """Use the API sport icon, with sport-aware fallback like CoLa."""
+    icon = (match.get("sport_icon_url") or "").strip()
+    if icon:
+        # Nếu là relative path thì prepend domain.
+        if icon.startswith("/"):
+            icon = PHAOHOA_FRONTEND_URL.rstrip("/") + icon
+        return icon
+    parts = " ".join([
+        match.get("sport_name", ""),
+        match.get("sport_slug", ""),
+        match.get("tournament_name", ""),
+    ])
+    return _logo_from_text(parts)
 
 def _get_server_base_url() -> str:
     """Lấy base URL của server để tạo proxy URL tuyệt đối."""
