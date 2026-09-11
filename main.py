@@ -1016,7 +1016,7 @@ def index():
         "</ul>"
         "<h3>⚡ Pháo Hoa TV — Direct Stream</h3><ul>"
          "<li>Link stream được fetch cùng playlist và cache như CoLa</li>"
-         "<li>Chỉ hiển thị trận đã có stream URL</li>
+         "<li>Chỉ hiển thị trận đã có stream URL</li>"
          "</ul>"
     )
 
