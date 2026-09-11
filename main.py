@@ -412,7 +412,7 @@ def _fetch_phaohoa_matches() -> list:
 
 def _phaohoa_is_active(match: dict) -> bool:
     """Trận hợp lệ nếu chưa kết thúc.
-    Không yêu cầu stream URL — link sẽ lấy theo thời gian thực khi user mở kênh."""
+    Chỉ hiển thị trận có stream URL trong dữ liệu fetch nền, giống CoLa."""
     status = str(match.get("status") or "").lower().strip()
     if status in FINISHED_STATUS_STRINGS:
         return False
@@ -469,27 +469,25 @@ def _get_server_base_url() -> str:
         return app_url.rstrip("/")
     return f"http://localhost:{os.environ.get('PORT', 5000)}"
 
-def _fetch_phaohoa_match_by_slug(slug: str) -> dict:
-    """Fetch chi tiết 1 trận, with the same Render-safe fallback."""
-    url = PHAOHOA_API_URL.rstrip("/") + "/" + slug + "/"
-    return _fetch_phaohoa_json(url)
-
 def _build_phaohoa_lines(matches: list) -> list:
-    """Build M3U lines cho Pháo Hoa TV.
-    Mỗi kênh dùng proxy URL /ph_stream/<slug> — khi user mở kênh,
-    server sẽ fetch link stream thực tế từ API theo thời gian thực.
+    """Build Pháo Hoa M3U with direct stream URLs, like CoLa.
+
+    Stream URLs are taken from the prefetched match data. Matches without a
+    currently available stream are omitted until the next background refresh.
     """
     lines = []
     try:
         matches = sorted(matches, key=lambda m: m.get("start_time") or "")
     except Exception:
         pass
-    base_url = _get_server_base_url()
     for match in matches:
         if not _phaohoa_is_active(match):
             continue
         slug = (match.get("slug") or "").strip()
         if not slug:
+            continue
+        stream_url, commentator = _pick_phaohoa_stream(match)
+        if not stream_url:
             continue
         home       = (match.get("home_team_name") or "Home").strip()
         away       = (match.get("away_team_name") or "Away").strip()
@@ -505,15 +503,15 @@ def _build_phaohoa_lines(matches: list) -> list:
         except Exception:
             time_str = "--:--"
             date_str = "--/--"
-        _, commentator = _pick_phaohoa_stream(match)
         status_label = " LIVE" if status == "live" else ""
         if commentator:
             display = f"{time_str} - {date_str} | {home} VS {away} ({tournament}) | {commentator}{status_label}"
         else:
             display = f"{time_str} - {date_str} | {home} VS {away} ({tournament}){status_label}"
         lines.append(f'#EXTINF:-1 tvg-logo="{logo}" group-title="Pháo Hoa TV",{display}')
-        proxy_url = f"{base_url}/ph_stream/{slug}"
-        lines.append(proxy_url)
+        if "|" not in stream_url:
+            stream_url += f"|Referer={PHAOHOA_FRONTEND_URL.rstrip('/')}/&User-Agent=Mozilla/5.0"
+        lines.append(stream_url)
     return lines
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -929,21 +927,6 @@ def dekiki_m3u():
 def film4k_m3u():
     return _m3u_response("film4k", "film4k.m3u")
 
-@app.route("/ph_stream/<path:slug>")
-def ph_stream(slug: str):
-    try:
-        match = _fetch_phaohoa_match_by_slug(slug)
-    except Exception as e:
-        return Response(f"Stream not available: {e}", status=502, mimetype="text/plain")
-    stream_url, _ = _pick_phaohoa_stream(match)
-    if not stream_url:
-        return Response("Stream not available yet — match may not have started.",
-                        status=404, mimetype="text/plain")
-    _ref = PHAOHOA_FRONTEND_URL.rstrip("/") + "/"
-    if "|" not in stream_url:
-        stream_url += f"|Referer={_ref}&User-Agent=Mozilla/5.0"
-    return Response(status=302, headers={"Location": stream_url})
-
 @app.route("/status.json")
 def status_json():
     from flask import jsonify
@@ -1031,11 +1014,10 @@ def index():
         "<li>Các nguồn fetch song song (ThreadPoolExecutor)</li>"
         f"<li>Làm mới cache mỗi <strong>{PREFETCH_INTERVAL // 60} phút</strong></li>"
         "</ul>"
-        "<h3>🔥 Pháo Hoa TV — Real-time Stream</h3><ul>"
-        "<li>Hiển thị tất cả trận theo lịch (scheduled + live)</li>"
-        "<li>Link stream lấy theo thời gian thực khi user mở kênh</li>"
-        "<li>Proxy endpoint: <code>/ph_stream/&lt;slug&gt;</code> — fetch API → 302 redirect</li>"
-        "</ul>"
+        "<h3>⚡ Pháo Hoa TV — Direct Stream</h3><ul>"
+         "<li>Link stream được fetch cùng playlist và cache như CoLa</li>"
+         "<li>Chỉ hiển thị trận đã có stream URL</li>
+         "</ul>"
     )
 
 # ══════════════════════════════════════════════════════════════════════════════
