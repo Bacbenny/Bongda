@@ -448,13 +448,7 @@ def _pick_phaohoa_stream(match: dict) -> tuple:
     return "", ""
 
 def _phaohoa_logo(match: dict) -> str:
-    """Use the API sport icon, with sport-aware fallback like CoLa."""
-    icon = (match.get("sport_icon_url") or "").strip()
-    if icon:
-        # Nếu là relative path thì prepend domain.
-        if icon.startswith("/"):
-            icon = PHAOHOA_FRONTEND_URL.rstrip("/") + icon
-        return icon
+    """Use the same sharp CDN logo set as CoLa, selected by sport."""
     parts = " ".join([
         match.get("sport_name", ""),
         match.get("sport_slug", ""),
