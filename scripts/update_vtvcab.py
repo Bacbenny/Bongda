@@ -139,15 +139,27 @@ def load_payload(session: requests.Session) -> object:
         if token:
             session.headers["Authorization"] = f"Bearer {token}"
 
-    response = session.get(
-        urljoin(BASE_URL + "/", TV_PATH.lstrip("/")),
-        timeout=TIMEOUT,
-    )
-    response.raise_for_status()
-    try:
-        return response.json()
-    except ValueError as exc:
-        raise RuntimeError("Film4K /api/tv/ không trả về JSON") from exc
+    paths = [TV_PATH]
+    if TV_PATH.rstrip("/") == "/api/tv":
+        paths.extend(["/api/tv/channels", "/api/tv/events"])
+
+    failures = []
+    for path in dict.fromkeys(paths):
+        response = session.get(
+            urljoin(BASE_URL + "/", path.lstrip("/")),
+            timeout=TIMEOUT,
+        )
+        if response.status_code in {404, 405, 500, 502, 503, 504}:
+            failures.append(f"{path}: HTTP {response.status_code}")
+            continue
+        response.raise_for_status()
+        try:
+            return response.json()
+        except ValueError as exc:
+            failures.append(f"{path}: response không phải JSON")
+
+    detail = "; ".join(failures) if failures else "không có endpoint khả dụng"
+    raise RuntimeError(f"Film4K TV API không khả dụng: {detail}")
 
 
 def replace_block(block: list[str], stream: str, drm: dict[str, str]) -> list[str]:
