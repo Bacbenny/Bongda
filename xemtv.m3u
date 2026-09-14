@@ -51,30 +51,34 @@ https://live.fptplay53.net/fnxhd2/anninhtv_vhls.smil/chunklist_b5000000.m3u8
 https://live.fptplay53.net/fnxhd2/quocphongvnhd_vhls.smil/chunklist_b5000000.m3u8
 #EXTINF:-1 tvg-name="ON Vie Giải Trí" tvg-logo="https://i.imgur.com/7GSKm46.png" group-title="VTVcab",ON Vie Giải Trí
 https://freem3u.xyz/api/live/play.m3u8?vid=180
-#EXTINF:-1 tvg-id="onfootball" group-title="VTVcab" tvg-logo="https://assets-vtvcab.gviet.vn/images/hq/posters/_ootball_-_opyright_by_cab_logo_202212.jpg", ON Football
+#EXTINF:-1 tvg-id="onfootball" group-title="VTVcab" tvg-logo="https://assets-vtvcab.gviet.vn/images/hq/posters/_ootball_-_opyright_by_cab_logo_202212.jpg",ON Football
+#EXTVLCOPT:http-user-agent=Dalvik/2.1.0
 #KODIPROP:inputstream=inputstream.adaptive 
 #KODIPROP:inputstream.adaptive.manifest_type=dash 
 #KODIPROP:inputstream.adaptive.license_type=clearkey 
-#KODIPROP:inputstream.adaptive.license_key=c410ddc6a75244639fd0561fba5ef19b:30d13ea42031b9ff8271e5dc37d90e10 
-https://cdnet-cdn-01.onsports.vn/onplus/BONGDA_HD/manifest.mpd
+#KODIPROP:inputstream.adaptive.license_key=https://vietmitv-stream.viet-ng228.workers.dev/channel?group=VTVcab&name=ON+FOOTBALL&kind=license
+https://vietmitv-stream.viet-ng228.workers.dev/channel?group=VTVcab&name=ON+FOOTBALL
 #EXTINF:-1 tvg-id="onsports" group-title="VTVcab" tvg-logo="https://assets-vtvcab.gviet.vn/images/hq/posters/_ports_ng_logo_04202212.jpg",ON Sports
+#EXTVLCOPT:http-user-agent=Dalvik/2.1.0
 #KODIPROP:inputstream=inputstream.adaptive 
 #KODIPROP:inputstream.adaptive.manifest_type=dash 
 #KODIPROP:inputstream.adaptive.license_type=clearkey 
-#KODIPROP:inputstream.adaptive.license_key=c410ddc6a75244639fd0561fba5ef19b:30d13ea42031b9ff8271e5dc37d90e10 
-https://cdnet-cdn-01.onsports.vn/onplus/THETHAO_HD/manifest.mpd
-#EXTINF:-1 tvg-id="onsportsplus" group-title="VTVcab" tvg-logo="https://assets-vtvcab.gviet.vn/images/hq/posters/onsportscongmoi1.jpg", ON Sports+ 
+#KODIPROP:inputstream.adaptive.license_key=https://vietmitv-stream.viet-ng228.workers.dev/channel?group=VTVcab&name=ON+SPORTS&kind=license
+https://vietmitv-stream.viet-ng228.workers.dev/channel?group=VTVcab&name=ON+SPORTS
+#EXTINF:-1 tvg-id="onsportsplus" group-title="VTVcab" tvg-logo="https://assets-vtvcab.gviet.vn/images/hq/posters/onsportscongmoi1.jpg",ON Sports+ 
+#EXTVLCOPT:http-user-agent=Dalvik/2.1.0
 #KODIPROP:inputstream=inputstream.adaptive 
 #KODIPROP:inputstream.adaptive.manifest_type=dash 
 #KODIPROP:inputstream.adaptive.license_type=clearkey 
-#KODIPROP:inputstream.adaptive.license_key=c410ddc6a75244639fd0561fba5ef19b:30d13ea42031b9ff8271e5dc37d90e10 
-https://cdnet-cdn-01.onsports.vn/onplus/HAY_TV/manifest.mpd
-#EXTINF:-1 tvg-id="onsportsnews" group-title="VTVcab" tvg-logo="https://assets-vtvcab.gviet.vn/images/v2/channel/20220613/2022061306/Logo_ONSPORTSNEWS_150x904_1675158858.webp", ON Sports News
+#KODIPROP:inputstream.adaptive.license_key=https://vietmitv-stream.viet-ng228.workers.dev/channel?group=VTVcab&name=ON+SPORTS%2B&kind=license
+https://vietmitv-stream.viet-ng228.workers.dev/channel?group=VTVcab&name=ON+SPORTS%2B
+#EXTINF:-1 tvg-id="onsportsnews" group-title="VTVcab" tvg-logo="https://assets-vtvcab.gviet.vn/images/v2/channel/20220613/2022061306/Logo_ONSPORTSNEWS_150x904_1675158858.webp",ON Sports News
+#EXTVLCOPT:http-user-agent=Dalvik/2.1.0
 #KODIPROP:inputstream=inputstream.adaptive 
 #KODIPROP:inputstream.adaptive.manifest_type=dash 
 #KODIPROP:inputstream.adaptive.license_type=clearkey 
-#KODIPROP:inputstream.adaptive.license_key=c410ddc6a75244639fd0561fba5ef19b:30d13ea42031b9ff8271e5dc37d90e10 
-https://cdnet-cdn-01.onsports.vn/onplus/THETHAO_TINTUC_HD/manifest.mpd
+#KODIPROP:inputstream.adaptive.license_key=https://vietmitv-stream.viet-ng228.workers.dev/channel?group=VTVcab&name=ON+SPORTS+NEWS&kind=license
+https://vietmitv-stream.viet-ng228.workers.dev/channel?group=VTVcab&name=ON+SPORTS+NEWS
 #EXTINF:-1 tvg-name="ON Phim Việt" tvg-logo="https://i.imgur.com/MPNlpzb.png" group-title="VTVcab",ON Phim Việt
 https://vmttv.dpdns.org/tv360/?id=175
 #EXTINF:-1 tvg-name="ON Movies" tvg-logo="https://i.imgur.com/765Y3jw.png" group-title="VTVcab",ON Movies
