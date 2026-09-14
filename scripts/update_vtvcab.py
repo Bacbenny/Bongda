@@ -27,7 +27,8 @@ TARGETS = {
 STREAM_KEYS = (
     "url", "stream_url", "streamUrl", "stream", "manifest", "manifest_url",
     "manifestUrl", "mpd", "m3u8", "play_url", "playUrl", "sourceUrl", "src",
-    "playback_url", "playbackUrl",
+    "playback_url", "playbackUrl", "streaming_url", "streamingUrl", "dash_url",
+    "dashUrl", "hls_url", "hlsUrl", "url_mpd", "url_m3u8", "file", "source",
 )
 LICENSE_KEY_KEYS = ("license_key", "licenseKey", "clearkey", "clearKey", "drm_key", "drmKey")
 LICENSE_URL_KEYS = ("license_url", "licenseUrl", "drm_url", "drmUrl")
@@ -46,6 +47,8 @@ def iter_objects(value: object, hint: str = ""):
         for key, child in value.items():
             if isinstance(child, (dict, list)):
                 yield from iter_objects(child, str(key))
+            elif isinstance(child, str) and child.strip():
+                yield {"url": child}, str(key)
     elif isinstance(value, list):
         for child in value:
             yield from iter_objects(child, hint)
@@ -71,6 +74,7 @@ def matches_channel(obj: dict, hint: str, target: str) -> bool:
     for key in (
         "id", "channelId", "channel_id", "slug", "code", "tvgId", "tvg_id",
         "name", "title", "displayName", "display_name", "channelName", "channel_name",
+        "channel", "channelTitle", "channel_title",
     ):
         if key in obj:
             candidates.append(str(obj[key]))
@@ -134,10 +138,25 @@ def load_payloads(session: requests.Session) -> list[tuple[str, object]]:
         login_payload = login.json()
     except ValueError:
         login_payload = {}
-    if isinstance(login_payload, dict):
-        token = login_payload.get("token") or login_payload.get("accessToken")
-        if token:
-            session.headers["Authorization"] = f"Bearer {token}"
+    def find_token(value):
+        if isinstance(value, dict):
+            for key in ("token", "accessToken", "access_token"):
+                if isinstance(value.get(key), str) and value[key].strip():
+                    return value[key].strip()
+            for child in value.values():
+                token = find_token(child)
+                if token:
+                    return token
+        elif isinstance(value, list):
+            for child in value:
+                token = find_token(child)
+                if token:
+                    return token
+        return ""
+
+    token = find_token(login_payload)
+    if token:
+        session.headers["Authorization"] = f"Bearer {token}"
 
     paths = [TV_PATH]
     if TV_PATH.rstrip("/") == "/api/tv":
