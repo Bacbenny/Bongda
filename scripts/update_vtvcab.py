@@ -36,7 +36,8 @@ LICENSE_TYPE_KEYS = ("license_type", "licenseType", "drm_type", "drmType")
 
 
 def norm(value: object) -> str:
-    text = unicodedata.normalize("NFKD", str(value or ""))
+    text = str(value or "").replace("+", " plus ")
+    text = unicodedata.normalize("NFKD", text)
     text = "".join(ch for ch in text if not unicodedata.combining(ch))
     return re.sub(r"[^a-z0-9]+", "", text.lower())
 
