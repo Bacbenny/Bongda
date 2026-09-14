@@ -118,7 +118,7 @@ def get_channel(payload: object, target: str) -> tuple[str, dict[str, str]]:
     raise RuntimeError(f"Film4K API không có stream hợp lệ cho {target}")
 
 
-def load_payload(session: requests.Session) -> object:
+def load_payloads(session: requests.Session) -> list[tuple[str, object]]:
     email = os.environ.get("FILM4K_USERNAME", "")
     password = os.environ.get("FILM4K_PASSWORD", "")
     if not email or not password:
@@ -143,6 +143,7 @@ def load_payload(session: requests.Session) -> object:
     if TV_PATH.rstrip("/") == "/api/tv":
         paths.extend(["/api/tv/channels", "/api/tv/events"])
 
+    payloads: list[tuple[str, object]] = []
     failures = []
     for path in dict.fromkeys(paths):
         response = session.get(
@@ -154,13 +155,14 @@ def load_payload(session: requests.Session) -> object:
             continue
         response.raise_for_status()
         try:
-            return response.json()
-        except ValueError as exc:
+            payloads.append((path, response.json()))
+        except ValueError:
             failures.append(f"{path}: response không phải JSON")
 
-    detail = "; ".join(failures) if failures else "không có endpoint khả dụng"
-    raise RuntimeError(f"Film4K TV API không khả dụng: {detail}")
-
+    if not payloads:
+        detail = "; ".join(failures) if failures else "không có endpoint khả dụng"
+        raise RuntimeError(f"Film4K TV API không khả dụng: {detail}")
+    return payloads
 
 def replace_block(block: list[str], stream: str, drm: dict[str, str]) -> list[str]:
     output = [line for line in block if not line.strip().startswith("http://") and not line.strip().startswith("https://")]
@@ -228,8 +230,18 @@ def main() -> int:
 
     session = requests.Session()
     session.headers.update({"Accept": "application/json", "User-Agent": "Bongda-VTVcab-Updater/1.0"})
-    payload = load_payload(session)
-    channels = {target: get_channel(payload, target) for target in TARGETS}
+    payloads = load_payloads(session)
+    channels = None
+    endpoint_errors = []
+    for endpoint, payload in payloads:
+        try:
+            candidate = {target: get_channel(payload, target) for target in TARGETS}
+            channels = candidate
+            break
+        except Exception as exc:
+            endpoint_errors.append(f"{endpoint}: {exc}")
+    if channels is None:
+        raise RuntimeError("Không tìm đủ bốn kênh từ Film4K: " + "; ".join(endpoint_errors))
     changed = update_playlist(path, channels)
     print(json.dumps({"ok": True, "changed": changed, "channels_updated": sorted(channels)}, ensure_ascii=False))
     return 0
