@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: iptv-server
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    # 1 worker + 8 threads = shared in-process cache (one prefetch loop, no duplicate upstream fetches)
+    # gthread worker class allows concurrent requests without GIL contention on I/O
+    startCommand: gunicorn main:app --bind 0.0.0.0:$PORT --workers 1 --worker-class gthread --threads 16 --timeout 120 --keep-alive 5
+    plan: free
+    envVars:
+      - key: COLATV_FRONTEND
+        value: https://colatv48.live
+      - key: COLATV_API
+        value: https://api.cltvlv.com/api/matches
+      - key: PHAOHOA_FRONTEND
+        value: https://khandai3.link
+      - key: PHAOHOA_API
+        value: https://khandai3.link/api/matches/
+      - key: GIOVANG_FRONTEND
+        value: https://giovang.asia
+      - key: GIOVANG_API_HOST
+        value: https://live-api.keonhacaitp.one
+      - key: MATCH_MAX_DURATION
+        value: "7200"
