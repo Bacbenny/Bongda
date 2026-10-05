@@ -48,7 +48,7 @@ GIOVANG_API_HOST     = os.environ.get(
 # ─── Dekiki (GitHub-hosted static list) + EPG ────────────────────────────────
 DEKIKI_M3U_URL = os.environ.get(
     "DEKIKI_M3U_URL",
-    "https://raw.githubusercontent.com/Bacbenny/Bongda/refs/heads/main/xemtv.m3u",
+    "https://raw.githubusercontent.com/Bacbenny/dekiki/refs/heads/main/film4k.m3u",
 )
 EPG_URL = os.environ.get("EPG_URL", "https://vnepg.site/epg.xml")
 
