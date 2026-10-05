@@ -537,7 +537,7 @@ def _build_phaohoa_lines(matches: list) -> list:
             display = f"{time_str} - {date_str} | {home} VS {away} ({tournament}) | {commentator}{status_label}"
         else:
             display = f"{time_str} - {date_str} | {home} VS {away} ({tournament}){status_label}"
-        lines.append(f'#EXTINF:-1 tvg-logo="{logo}" group-title="Pháo Hoa TV",{display}')
+        lines.append(f'#EXTINF:-1 tvg-logo="{logo}" group-title="Khán Đài TV",{display}')
         if "|" not in stream_url:
             stream_url += f"|Referer={PHAOHOA_FRONTEND_URL.rstrip('/')}/&User-Agent=Mozilla/5.0"
         lines.append(stream_url)
@@ -1197,10 +1197,10 @@ def _refresh_all_playlists():
 
     # Combined — live sports first, then static TV channels, Stalker2M3U last
     all_lines = (
-        cola_lines
-        + phaohoa_lines
+        phaohoa_lines
         + giovang_lines
         + phalang_lines
+        + cola_lines
         + dekiki_lines
         + stalker_lines
     )
@@ -1417,7 +1417,7 @@ def index():
         "<li><a href='/live.m3u'>/live.m3u</a> — Tất cả nguồn gộp lại</li>"
         "<li><a href='/stalker.m3u'>/stalker.m3u</a> — Stalker2M3U (đã lọc trùng, 1 nguồn/kênh)</li>"
         "<li><a href='/cola.m3u'>/cola.m3u</a> — Cola TV only</li>"
-        "<li><a href='/phaohoa.m3u'>/phaohoa.m3u</a> — Pháo Hoa TV only</li>"
+        "<li><a href='/phaohoa.m3u'>/phaohoa.m3u</a> — Khán Đài TV only</li>"
          "<li><a href='/giovang.m3u'>/giovang.m3u</a> — Giờ Vàng TV only</li>"
         "<li><a href='/phalang.m3u'>/phalang.m3u</a> — PhaLang TV only</li>"
         "<li><a href='/dekiki.m3u'>/dekiki.m3u</a> — Kênh TV Việt (dekiki)</li>"
@@ -1432,7 +1432,7 @@ def index():
         f"&nbsp;|&nbsp; <code>{STALKER_M3U_URL}</code></p>"
         f"<p>🟢 Cola TV: <strong>{cola_count} kênh</strong>"
         f"&nbsp;|&nbsp; <code>{_colatv_api_cache['url']}</code></p>"
-        f"<p>🟢 Pháo Hoa TV: <strong>{phaohoa_count} kênh</strong>"
+        f"<p>🟢 Khán Đài TV: <strong>{phaohoa_count} kênh</strong>"
         f"&nbsp;|&nbsp; <code>{PHAOHOA_API_URL}</code></p>"
         f"<p>🟢 Giờ Vàng TV: <strong>{giovang_count} kênh</strong>"
         f"&nbsp;|&nbsp; <code>{_giovang_api_cache['host']}</code></p>"
