@@ -1,9 +1,11 @@
 import gzip
 import hashlib
+import ipaddress
 import os
 import re
 import threading
 import time
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
 from urllib.parse import quote
@@ -52,6 +54,8 @@ VN_TZ                = timezone(timedelta(hours=7))
 SELF_PING_INTERVAL   = 240   # seconds
 PREFETCH_INTERVAL   = 300    # seconds — refresh cache every 5 minutes
 API_DISCOVERY_TTL    = 3600  # seconds — re-discover API URL every 1 hour
+PLAYLIST_VISITOR_WINDOW_SECONDS = 300
+PLAYLIST_VISITOR_MAX_CLIENTS = 10000
 
 COLATV_FINISHED_STATUS_INT = {3}
 FINISHED_STATUS_STRINGS    = {"finished", "end", "ended", "complete", "completed"}
@@ -98,6 +102,11 @@ _playlist_cache = {
     "phalang":  _empty_entry(),
     "dekiki":   _empty_entry(),
 }
+
+# Count distinct playlist clients in memory only. Store keyed hashes, not IPs.
+_playlist_visitor_hash_key = os.urandom(32)
+_playlist_visitors = OrderedDict()
+_playlist_visitors_lock = threading.Lock()
 
 _last_counts = {
     "stalker": 0, "cola": 0, "giovang": 0, "phalang": 0, "dekiki": 0,
@@ -968,6 +977,56 @@ def _get_entry(key: str):
             "built_at": entry["built_at"],
         }
 
+
+def _playlist_visitor_key():
+    forwarded_for = request.headers.get("X-Forwarded-For", "")
+    client_ip = forwarded_for.split(",", 1)[0].strip() or request.remote_addr
+    if not client_ip:
+        return None
+    try:
+        normalized_ip = str(ipaddress.ip_address(client_ip))
+    except ValueError:
+        return None
+    return hashlib.blake2b(
+        normalized_ip.encode("utf-8"),
+        key=_playlist_visitor_hash_key,
+        digest_size=16,
+    ).digest()
+
+
+def _prune_playlist_visitors(now: float) -> None:
+    cutoff = now - PLAYLIST_VISITOR_WINDOW_SECONDS
+    while _playlist_visitors:
+        _, last_seen = next(iter(_playlist_visitors.items()))
+        if last_seen > cutoff:
+            break
+        _playlist_visitors.popitem(last=False)
+
+
+def _record_playlist_visit() -> None:
+    visitor_key = _playlist_visitor_key()
+    if visitor_key is None:
+        return
+
+    now = time.monotonic()
+    with _playlist_visitors_lock:
+        _prune_playlist_visitors(now)
+        if (
+            visitor_key not in _playlist_visitors
+            and len(_playlist_visitors) >= PLAYLIST_VISITOR_MAX_CLIENTS
+        ):
+            _playlist_visitors.popitem(last=False)
+        _playlist_visitors[visitor_key] = now
+        _playlist_visitors.move_to_end(visitor_key)
+
+
+def _active_playlist_visitors() -> int:
+    now = time.monotonic()
+    with _playlist_visitors_lock:
+        _prune_playlist_visitors(now)
+        return len(_playlist_visitors)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Flask routes
 # ══════════════════════════════════════════════════════════════════════════════
@@ -996,6 +1055,8 @@ def _m3u_response(key: str, filename: str) -> Response:
             with _refresh_lock:
                 pass
         entry = _get_entry(key)
+
+    _record_playlist_visit()
 
     # ── ETag / conditional GET ────────────────────────────────────────────────
     etag = entry["etag"]
@@ -1129,6 +1190,7 @@ def index():
     phalang_count  = _last_counts.get("phalang",   0)
     dekiki_count   = _last_counts.get("dekiki",    0)
     total          = stalker_count + cola_count + giovang_count + phalang_count + dekiki_count
+    active_playlist_visitors = _active_playlist_visitors()
 
     return (
         "<h2>🎬 IPTV M3U Server</h2>"
@@ -1144,6 +1206,8 @@ def index():
         f"<p>📺 Tổng kênh: <strong>{total}</strong>"
         f" &nbsp;(🏆 Live: {cola_count + giovang_count + phalang_count}"
         f" | 📡 TV: {stalker_count + dekiki_count})</p>"
+        f"<p>👥 Người truy cập playlist (ước tính theo IP, 5 phút qua): "
+        f"<strong>{active_playlist_visitors}</strong></p>"
         f"<p>🕐 Cập nhật lần cuối: <strong>{dt_str}</strong></p>"
         f"<p>⏳ Cập nhật tiếp theo: <strong>{next_str}</strong></p>"
         f"<p>🟢 Stalker2M3U: <strong>{stalker_count} kênh</strong>"
