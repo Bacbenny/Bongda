@@ -12,10 +12,6 @@ services:
         value: https://colatv48.live
       - key: COLATV_API
         value: https://api.cltvlv.com/api/matches
-      - key: PHAOHOA_FRONTEND
-        value: https://khandai3.link
-      - key: PHAOHOA_API
-        value: https://khandai3.link/api/matches/
       - key: GIOVANG_FRONTEND
         value: https://giovang.asia
       - key: GIOVANG_API_HOST
